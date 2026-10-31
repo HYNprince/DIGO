@@ -30,16 +30,21 @@ execute function public.digo_capture_report_evidence();
 revoke insert on public.reports from authenticated;
 grant insert(reporter_id,message_id,reason) on public.reports to authenticated;
 
--- Only reply to a visible message in the same room.
+-- Check reply target against the room through a fixed-purpose database function.
+create or replace function public.digo_reply_allowed(p_message uuid,p_room uuid)
+returns boolean language sql stable security definer set search_path=public,pg_temp as $
+  select exists(select 1 from public.messages
+                where id=p_message and room_id=p_room and deleted_at is null);
+$;
+revoke all on function public.digo_reply_allowed(uuid,uuid) from public;
+grant execute on function public.digo_reply_allowed(uuid,uuid) to authenticated;
+
 drop policy if exists message_send on public.messages;
 create policy message_send on public.messages for insert to authenticated
 with check (
   user_id=(select auth.uid()) and public.is_room_member(room_id)
   and deleted_at is null and edited_at is null
-  and (reply_to is null or exists (
-    select 1 from public.messages original
-    where original.id=reply_to and original.room_id=room_id and original.deleted_at is null
-  ))
+  and (reply_to is null or public.digo_reply_allowed(reply_to,room_id))
 );
 -- No direct client UPDATE or DELETE on messages. Trusted RPC functions own these changes.
 revoke update, delete on public.messages from authenticated;
