@@ -271,7 +271,14 @@ body{font-family:'DM Sans',system-ui,sans-serif}
 @media(max-width:650px){.reply-compose{font-size:10px}.message-tools button{min-height:26px}}
   </style>
   <style>.unread-dot{display:inline-block;background:#ff90c3;color:#202033;border:2px solid #202033;border-radius:100px;padding:2px 6px;font:800 9px 'Syne',system-ui,sans-serif;box-shadow:2px 2px 0 #202033;white-space:nowrap}</style>
-  <script>window.DIGO_CONFIG={supabaseUrl:"https://ubuhxdtmglxifwhaogkb.supabase.co",supabaseAnonKey:"sb_publishable_HjmF307ZtKBTR5vbC9DrFg_0O61u0uS"};</script>
+  <style>
+  .digo-captcha-box{margin:12px 0 16px;padding:12px 14px;background:#eaf9ff;border:2px solid #202033;border-radius:12px;box-shadow:3px 3px 0 #202033}
+  .captcha-label{font:800 11px 'Syne',system-ui,sans-serif;letter-spacing:.06em;margin-bottom:7px;color:#202033}
+  .captcha-status{font-size:11px;line-height:1.4;margin-top:6px;color:#625d72}
+  #digo-turnstile{min-height:62px;max-width:100%;overflow:hidden}
+  @media(max-width:540px){.digo-captcha-box{padding:10px}}
+  </style>
+  <script>window.DIGO_CONFIG={supabaseUrl:"https://ubuhxdtmglxifwhaogkb.supabase.co",supabaseAnonKey:"sb_publishable_HjmF307ZtKBTR5vbC9DrFg_0O61u0uS",turnstileSiteKey:"0x4AAAAAAFt53gWhIuRTtiWc"};</script>
   
 </head>
 <body><div id="app"></div><script>/* DIGO v1.6 — social beta: friend-only DMs, expanded games, leaderboard and room customization. */
@@ -329,6 +336,60 @@ body{font-family:'DM Sans',system-ui,sans-serif}
   const app = {service:null, me:null, rooms:[], roomId:PUBLIC_ROOMS[0].id, roomData:null, lastFailure:null, pendingMessages:[], replyTo:null, unreadRooms:new Set(), unreadSince:new Date().toISOString(), peers:[], view:'chat', draft:{...DEF_AVATAR}, draftName:'', profileOpen:false, makeRoomOpen:false, reportTarget:null, inviteOpen:false, notify:'', busy:false, gameFeedback:'', focusGuess:false, lastEmote:null,viewProfileId:null,dmReportTarget:null,chatSearch:'',searchOpen:false,socialOpen:false,leaderboardOpen:false,roomSettingsOpen:false,socialTab:'friends',social:null,peopleSearch:[],searchingPeople:false,socialQuery:'',dmPeer:null,dmDraft:'',leaderboard:[],roomEdit:{name:'',description:'',icon:'✳'}};
   const notify = text => {app.notify=text; draw(); clearTimeout(notify.timer); notify.timer=setTimeout(()=>{app.notify='';document.querySelector('.toast')?.remove();},3500);};
   const showFailure=(stage,e)=>{const detail=String(e?.message||'Unknown issue');const code=String(e?.code||'');app.lastFailure={stage,detail,code};console.warn('DIGO '+stage+':',e);draw();};
+  // Turnstile tokens are single-use. Render explicitly because DIGO redraws its onboarding UI.
+  let captchaWidgetId=null,captchaNode=null,captchaToken=null,captchaScriptLoading=false;
+  function updateCaptchaStatus(message){
+    const status=document.getElementById('digo-captcha-status');
+    if(status)status.textContent=message;
+  }
+  function disposeCaptcha(){
+    if(captchaWidgetId!==null&&window.turnstile){try{window.turnstile.remove(captchaWidgetId)}catch(e){console.debug('Turnstile cleanup',e)}}
+    captchaWidgetId=null;captchaNode=null;captchaToken=null;
+  }
+  function mountCaptcha(){
+    if(app.me||app.service?.mode!=='live'||!window.DIGO_CONFIG?.turnstileSiteKey)return;
+    const node=document.getElementById('digo-turnstile');
+    if(!node)return;
+    if(captchaWidgetId!==null&&captchaNode===node)return;
+    if(!window.turnstile){
+      if(!captchaScriptLoading){
+        captchaScriptLoading=true;
+        const script=document.createElement('script');
+        script.src='https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+        script.async=true;
+        script.onload=()=>{captchaScriptLoading=false;mountCaptcha()};
+        script.onerror=()=>{captchaScriptLoading=false;updateCaptchaStatus('Security check could not load. Check your connection and content blockers, then refresh.')};
+        document.head.appendChild(script);
+      }
+      return;
+    }
+    if(captchaWidgetId!==null)disposeCaptcha();
+    captchaNode=node;captchaToken=null;
+    try{
+      captchaWidgetId=window.turnstile.render(node,{
+        sitekey:window.DIGO_CONFIG.turnstileSiteKey,
+        theme:'light',size:'flexible',
+        callback:(token)=>{captchaToken=token;updateCaptchaStatus('Verified ✓ You can enter DIGO.')},
+        'expired-callback':()=>{captchaToken=null;updateCaptchaStatus('Security check expired. Complete it again.')},
+        'timeout-callback':()=>{captchaToken=null;updateCaptchaStatus('Security check timed out. Try again.')},
+        'error-callback':()=>{captchaToken=null;updateCaptchaStatus('Security check unavailable. Check network or browser shields and retry.')}
+      });
+    }catch(e){captchaToken=null;captchaNode=null;captchaWidgetId=null;console.warn('Turnstile setup',e);updateCaptchaStatus('Could not start the security check. Reload and try again.')}
+  }
+  function captchaForSignup(){
+    if(app.service?.mode!=='live'||!window.DIGO_CONFIG?.turnstileSiteKey)return null;
+    const token=captchaToken||((captchaWidgetId!==null&&window.turnstile)?window.turnstile.getResponse(captchaWidgetId):'');
+    if(!token)throw Error('Complete the DIGO security check before entering.');
+    if(captchaWidgetId!==null&&window.turnstile?.isExpired?.(captchaWidgetId))throw Error('Security check expired. Please complete it again.');
+    return token;
+  }
+  function resetSignupCaptcha(){
+    captchaToken=null;
+    if(captchaWidgetId!==null&&window.turnstile){
+      try{window.turnstile.reset(captchaWidgetId)}catch(e){console.debug('Turnstile reset',e)}
+    }
+    updateCaptchaStatus('Complete the security check to enter DIGO.');
+  }
   const randomDemoPersonas=[
     {id:'sample-person-1',display_name:'PixelFox',avatar:{color:1},sample:true},
     {id:'sample-person-2',display_name:'StarNova',avatar:{color:3},sample:true},
@@ -403,7 +464,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
     const joinedRooms=new Set();
     return {mode:'live',
       async getMe(){const id=await meId();if(!id)return null;return await query(supabase.from('profiles').select('*').eq('id',id).maybeSingle());},
-      async signIn(display_name,avatar){let id=await meId();if(!id){const {data,error}=await supabase.auth.signInAnonymously();if(error)throw error;id=data.user.id;}const p={id,display_name,avatar};await query(supabase.from('profiles').upsert(p).select().single());return p;},
+      async signIn(display_name,avatar,captchaToken=null){let id=await meId();if(!id){const {data,error}=await supabase.auth.signInAnonymously({options:{captchaToken:captchaToken||undefined}});if(error)throw error;id=data.user.id;}const p={id,display_name,avatar};await query(supabase.from('profiles').upsert(p).select().single());return p;},
       async saveProfile(profile){await query(supabase.from('profiles').update({display_name:profile.display_name,avatar:profile.avatar}).eq('id',profile.id));},
       async getRooms(){return await query(supabase.from('rooms').select('id,name,slug,description,icon,is_private,owner_id,invite_code').order('is_private').order('name'));},
       async getRecentRoomMessages(){return await query(supabase.from('messages').select('room_id,user_id,created_at').order('created_at',{ascending:false}).limit(50));},
@@ -482,7 +543,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
     const name=trimName(app.draftName)||'Your name';
     return `<div class="identity-editor"><div class="identity-preview"><div class="identity-preview-badge">${idBadge({display_name:name,avatar:{color:selected}},74)}</div><div><span class="identity-eyebrow">YOUR DIGO ID</span><strong>${esc(name)}</strong><small>One name. One color. That's it.</small></div></div><div class="color-picker-label">PICK YOUR COLOR</div><div class="id-swatches" role="group" aria-label="Choose ID color">${ID_COLORS.map((c,i)=>`<button type="button" class="id-swatch ${selected===i?'selected':''}" style="--swatch:${c}" data-action="set-avatar" data-field="color" data-index="${i}" aria-label="ID color ${i+1}" aria-pressed="${selected===i}">${selected===i?'✓':''}</button>`).join('')}</div></div>`;
   }
-  function onboarding(){return `<main class="onboard-page"><header class="landing-header">${logo()}<span>CHAT · PLAY · NO BIG DEAL ✳</span></header><div class="onboard-shell"><section class="onboard-hero"><div class="eyebrow"><span class="spark">✦</span> WELCOME TO DIGO</div><h1>YOUR SPACE.<br><span>YOUR PEOPLE.</span><br>YOUR CHAOS<span class="hero-fullstop">.</span></h1><p>Meet people, join a room, send an emote, and play mini-games. Just a nickname and a color to get started.</p><div class="hero-tags">${chip('💬 Chat spaces')}${chip('✦ Color IDs')}${chip('🎮 Mini-games')}</div><div class="identity-hero"><span>NO AVATARS. JUST A VIBE. ✳</span><div class="identity-hero-tags">${idBadge({display_name:'PixelFox',avatar:{color:1}},65)}${idBadge({display_name:'StarNova',avatar:{color:3}},65)}${idBadge({display_name:'LunaByte',avatar:{color:2}},65)}<span class="identity-plus">+ YOU</span></div></div></section><section class="onboard-card"><div class="onboard-card-top"><span class="step-tag">01 / PICK YOUR ID</span><span class="live-mode-label">${app.service?.mode==='demo'?'◉ DEMO MODE':'◉ ONLINE MODE'}</span></div><h2>Make your mark<span>✳</span></h2><p>No costumes. No fuss. Just a nickname and a color.</p><label class="field-label" for="nickname">YOUR NICKNAME</label><input class="text-field js-draft-name" id="nickname" maxlength="20" autocomplete="off" placeholder="Your nickname (2–20 chars)" value="${esc(app.draftName)}"/>${renderAvatarEditor(app.draft)}<button class="button button-primary button-block start-button" data-action="join-digo">Enter DIGO <span>→</span></button><p class="form-note">Guest access. No email needed. Please don't use your real personal details. ${app.service?.mode==='demo'?'This demo is saved only on this device.':'Anonymous accounts cannot be recovered if their browser session is lost.'}</p></section></div><footer class="landing-footer">DIGO beta v1.7 <span>•</span> Mobile + laptop</footer></main>`;}
+  function onboarding(){return `<main class="onboard-page"><header class="landing-header">${logo()}<span>CHAT · PLAY · NO BIG DEAL ✳</span></header><div class="onboard-shell"><section class="onboard-hero"><div class="eyebrow"><span class="spark">✦</span> WELCOME TO DIGO</div><h1>YOUR SPACE.<br><span>YOUR PEOPLE.</span><br>YOUR CHAOS<span class="hero-fullstop">.</span></h1><p>Meet people, join a room, send an emote, and play mini-games. Just a nickname and a color to get started.</p><div class="hero-tags">${chip('💬 Chat spaces')}${chip('✦ Color IDs')}${chip('🎮 Mini-games')}</div><div class="identity-hero"><span>NO AVATARS. JUST A VIBE. ✳</span><div class="identity-hero-tags">${idBadge({display_name:'PixelFox',avatar:{color:1}},65)}${idBadge({display_name:'StarNova',avatar:{color:3}},65)}${idBadge({display_name:'LunaByte',avatar:{color:2}},65)}<span class="identity-plus">+ YOU</span></div></div></section><section class="onboard-card"><div class="onboard-card-top"><span class="step-tag">01 / PICK YOUR ID</span><span class="live-mode-label">${app.service?.mode==='demo'?'◉ DEMO MODE':'◉ ONLINE MODE'}</span></div><h2>Make your mark<span>✳</span></h2><p>No costumes. No fuss. Just a nickname and a color.</p><label class="field-label" for="nickname">YOUR NICKNAME</label><input class="text-field js-draft-name" id="nickname" maxlength="20" autocomplete="off" placeholder="Your nickname (2–20 chars)" value="${esc(app.draftName)}"/>${renderAvatarEditor(app.draft)}${app.service?.mode==='live'&&window.DIGO_CONFIG?.turnstileSiteKey?'<div class="digo-captcha-box"><div class="captcha-label">🛡 QUICK SECURITY CHECK</div><div id="digo-turnstile" aria-label="DIGO human verification"></div><div class="captcha-status" id="digo-captcha-status" role="status">Complete the security check to enter DIGO.</div></div>':''}<button class="button button-primary button-block start-button" data-action="join-digo">Enter DIGO <span>→</span></button><p class="form-note">Guest access. No email needed. Please don't use your real personal details. ${app.service?.mode==='demo'?'This demo is saved only on this device.':'Anonymous accounts cannot be recovered if their browser session is lost.'}</p></section></div><footer class="landing-footer">DIGO beta v1.7 <span>•</span> Mobile + laptop</footer></main>`;}
   function renderStage(){
     const people=memberList().filter(p=>!isBlocked(p.id)).slice(0,8);
     return `<section class="stage-card tag-stage"><div class="stage-top"><div><div class="eyebrow stage-eyebrow"><span class="spark">✦</span> IN THIS SPACE</div><h2>The squad in ${esc(getCurrentRoom().name)}</h2><p>No costumes. Just good company.</p></div><span class="stage-pill">${app.service.mode==='demo'?'LOCAL DEMO':'LIVE ROOM'}</span></div><div class="tag-stage-members">${people.map(p=>`<button class="tag-stage-member" data-action="member-profile" data-user="${esc(p.id)}" title="View ${esc(p.display_name)} ID">${idBadge(p,46)}<span class="tag-member-info"><strong>${esc(p.display_name)}</strong><small>${p.id===app.me.id?'YOU':p.sample?'DEMO':'MEMBER'} · #${tagCode(p.id)}</small></span>${recentEmote(p.id)?`<span class="tag-emote">${recentEmote(p.id)}</span>`:''}</button>`).join('')||'<p class="muted">Be the first to join.</p>'}</div><div class="emote-tray"><span class="tray-label">MAKE SOME NOISE</span><div class="emote-buttons">${EMOTES.map(([id,emoji,name])=>`<button class="emote-button" data-action="emote" data-emote="${id}" title="${name}" aria-label="${name} emote">${emoji}<span>${name}</span></button>`).join('')}</div></section>`;
@@ -546,7 +607,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
     if(app.reportTarget)return `<div class="overlay" data-action="dismiss"><section class="modal-card" role="dialog" aria-modal="true" aria-label="Report a message"><button class="modal-x" data-action="dismiss">✕</button><div class="modal-kicker">HELP KEEP DIGO SAFE</div><h2>Report this message</h2><p>Choose the reason. A real moderator would need to review reports before a public launch.</p>${['Spam or scam','Harassment or hate','Sharing private information','Sexual or unsafe content'].map(reason=>`<button class="report-option" data-action="report-send" data-reason="${esc(reason)}">⚑ ${esc(reason)} <span>→</span></button>`).join('')}</section></div>`;
     return '';
   }
-  function draw(){if(!app.service)return;if(app.me&&!app.roomData){root.innerHTML=`<div class="loading-screen"><h2>Couldn't open DIGO room</h2><p>${esc(app.lastFailure?.stage||'Checking the room...')}</p><p>${esc(app.lastFailure?.detail||'Trying to load your room.')}</p><button data-action="retry-app" style="padding:12px 18px;border:2px solid #202033;border-radius:10px;background:#d7fb75;font-weight:bold">RETRY</button></div>`;return;}const oldScroll=document.querySelector('.content-scroll');const prevScroll=oldScroll?.scrollTop||0;const nearBottom=!oldScroll||oldScroll.scrollHeight-oldScroll.scrollTop-oldScroll.clientHeight<120;const active=document.activeElement;const inputId=active?.id;const selection=(active instanceof HTMLInputElement && inputId)?[active.selectionStart,active.selectionEnd]:null;const toLatest=!!(app.resetScroll||app.scrollToChat||nearBottom);app.scrollToChat=false;app.resetScroll=false;root.innerHTML=app.me?mainView()+overlay():onboarding();if(app.notify)root.insertAdjacentHTML('beforeend',`<div class="toast" role="status">${esc(app.notify)}</div>`);if(app.lastFailure)root.insertAdjacentHTML('beforeend',`<aside class="digo-diagnostic" role="alert"><strong>⚠ DIGO ${esc(app.lastFailure.stage)}</strong><p>${esc(app.lastFailure.detail)}</p>${app.lastFailure.code?`<small>Code: ${esc(app.lastFailure.code)}</small>`:''}<div><button type="button" data-action="retry-app">RETRY</button><button type="button" data-action="dismiss-diagnostic">DISMISS</button></div></aside>`);requestAnimationFrame(()=>{const scroller=document.querySelector('.content-scroll');if(scroller)scroller.scrollTop=toLatest?scroller.scrollHeight:prevScroll;syncJumpToLatest();if(app.searchOpen&&app.chatSearch)searchMessagesInPlace();if(inputId){const el=document.getElementById(inputId);if(el){el.focus({preventScroll:true});if(selection&&selection.every(Number.isInteger))try{el.setSelectionRange(...selection)}catch{}}}});}
+  function draw(){if(!app.service)return;if(app.me&&!app.roomData){root.innerHTML=`<div class="loading-screen"><h2>Couldn't open DIGO room</h2><p>${esc(app.lastFailure?.stage||'Checking the room...')}</p><p>${esc(app.lastFailure?.detail||'Trying to load your room.')}</p><button data-action="retry-app" style="padding:12px 18px;border:2px solid #202033;border-radius:10px;background:#d7fb75;font-weight:bold">RETRY</button></div>`;return;}const oldScroll=document.querySelector('.content-scroll');const prevScroll=oldScroll?.scrollTop||0;const nearBottom=!oldScroll||oldScroll.scrollHeight-oldScroll.scrollTop-oldScroll.clientHeight<120;const active=document.activeElement;const inputId=active?.id;const selection=(active instanceof HTMLInputElement && inputId)?[active.selectionStart,active.selectionEnd]:null;const toLatest=!!(app.resetScroll||app.scrollToChat||nearBottom);app.scrollToChat=false;app.resetScroll=false;disposeCaptcha();root.innerHTML=app.me?mainView()+overlay():onboarding();if(app.notify)root.insertAdjacentHTML('beforeend',`<div class="toast" role="status">${esc(app.notify)}</div>`);if(app.lastFailure)root.insertAdjacentHTML('beforeend',`<aside class="digo-diagnostic" role="alert"><strong>⚠ DIGO ${esc(app.lastFailure.stage)}</strong><p>${esc(app.lastFailure.detail)}</p>${app.lastFailure.code?`<small>Code: ${esc(app.lastFailure.code)}</small>`:''}<div><button type="button" data-action="retry-app">RETRY</button><button type="button" data-action="dismiss-diagnostic">DISMISS</button></div></aside>`);requestAnimationFrame(()=>{const scroller=document.querySelector('.content-scroll');if(scroller)scroller.scrollTop=toLatest?scroller.scrollHeight:prevScroll;syncJumpToLatest();if(app.searchOpen&&app.chatSearch)searchMessagesInPlace();if(inputId){const el=document.getElementById(inputId);if(el){el.focus({preventScroll:true});if(selection&&selection.every(Number.isInteger))try{el.setSelectionRange(...selection)}catch{}}}if(!app.me)mountCaptcha();});}
   function syncJumpToLatest(){const scroller=document.querySelector('.content-scroll');const button=document.querySelector('.jump-latest');if(!scroller||!button)return;button.hidden=scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<160||!!app.chatSearch;}
   function searchMessagesInPlace(){const q=(app.chatSearch||'').trim().toLocaleLowerCase();const cards=document.querySelectorAll('.chat-message');let count=0;cards.forEach(el=>{const show=!q||(el.textContent||'').toLocaleLowerCase().includes(q);el.hidden=!show;if(show)count++;});const info=document.querySelector('.search-bar small');if(info)info.textContent=count+' / '+cards.length;let empty=document.querySelector('.search-empty');if(!empty){empty=document.createElement('div');empty.className='search-empty';empty.textContent='NO MATCHES — TRY ANOTHER WORD ✳';document.getElementById('messages-list')?.append(empty);}empty.hidden=count!==0;}
   async function sendQuickMessage(body){await app.service.sendMessage(app.roomId,body);app.scrollToChat=true;await refreshRoom();}
@@ -693,8 +754,8 @@ body{font-family:'DM Sans',system-ui,sans-serif}
     if(a==='member-profile'){app.viewProfileId=d.user;draw();return;}
     if(a==='profile-wave')return run(async()=>{app.viewProfileId=null;await app.service.sendEmote(app.roomId,'wave');await refreshRoom();notify('Wave sent! 👋');});
     if(a==='spotlight-game')return run(async()=>{app.viewProfileId=null;await app.service.startGame(app.roomId,'would_rather');app.view='game';app.gameFeedback='';await refreshRoom();});
-    if(a==='set-avatar'){const field=d.field,index=Number(d.index);if(field==='color'&&Number.isInteger(index)&&index>=0&&index<ID_COLORS.length){app.draft.color=index;draw();}return;}
-    if(a==='join-digo')return run(async()=>{const name=trimName(app.draftName);if(name.length<2)throw Error('Choose a nickname with at least 2 characters.');let step='guest sign-in';try{app.me=await app.service.signIn(name,{...app.draft});step='room setup';app.composer='';await afterAuth();}catch(e){e.digoStage=step;throw e;}});
+    if(a==='set-avatar'){const field=d.field,index=Number(d.index);if(field==='color'&&Number.isInteger(index)&&index>=0&&index<ID_COLORS.length){app.draft.color=index;if(!app.me){const editor=document.querySelector('.identity-editor');if(editor)editor.outerHTML=renderAvatarEditor(app.draft);else draw();}else draw();}return;}
+    if(a==='join-digo')return run(async()=>{const name=trimName(app.draftName);if(name.length<2)throw Error('Choose a nickname with at least 2 characters.');let step='guest sign-in';const token=captchaForSignup();try{app.me=await app.service.signIn(name,{...app.draft},token);step='room setup';app.composer='';await afterAuth();}catch(e){e.digoStage=step;throw e;}finally{resetSignupCaptcha();}});
     if(a==='room'){storage.setItem('digo:last-room',d.room);void enterRoom(d.room).catch(e=>showFailure('room switch',e));return;}
     if(a==='view'){app.view=d.view;draw();return;}
     if(a==='profile-open'){app.viewProfileId=null;app.profileOpen=true;app.draft={...app.me.avatar};app.draftName=app.me.display_name;draw();return;}
