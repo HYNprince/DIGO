@@ -384,6 +384,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
     const supabase=window.supabase.createClient(cfg.supabaseUrl,cfg.supabaseAnonKey,{auth:{persistSession:true,autoRefreshToken:true}});
     const meId=async()=>{const {data:{session},error:sessionError}=await supabase.auth.getSession();if(sessionError)throw sessionError;if(!session)return null;const {data:{user},error}=await supabase.auth.getUser();if(error){if(error.name==='AuthSessionMissingError'||error.code==='session_not_found')return null;throw error;}return user?.id||null;};
     const query=async request=>{const {data,error}=await request;if(error)throw error;return data;};
+    const joinedRooms=new Set();
     return {mode:'live',
       async getMe(){const id=await meId();if(!id)return null;return await query(supabase.from('profiles').select('*').eq('id',id).maybeSingle());},
       async signIn(display_name,avatar){let id=await meId();if(!id){const {data,error}=await supabase.auth.signInAnonymously();if(error)throw error;id=data.user.id;}const p={id,display_name,avatar};await query(supabase.from('profiles').upsert(p).select().single());return p;},
@@ -391,21 +392,28 @@ body{font-family:'DM Sans',system-ui,sans-serif}
       async getRooms(){return await query(supabase.from('rooms').select('id,name,slug,description,icon,is_private,owner_id,invite_code').order('is_private').order('name'));},
       async createRoom(name,icon='🔒'){const p={name,slug:'private-'+uid().slice(0,8),description:'Your private hangout',icon,is_private:true,owner_id:await meId(),invite_code:uid()};const r=await query(supabase.from('rooms').insert(p).select().single());await query(supabase.from('room_members').insert({room_id:r.id,user_id:await meId()}));return r;},
       async joinInvite(code){const id=await query(supabase.rpc('join_private_room',{p_invite_code:code}));return await query(supabase.from('rooms').select('*').eq('id',id).single());},
-      async joinRoom(roomId){await query(supabase.from('room_members').upsert({room_id:roomId,user_id:await meId()},{onConflict:'room_id,user_id',ignoreDuplicates:true}));},
+      async joinRoom(roomId){if(joinedRooms.has(roomId))return;await query(supabase.from('room_members').upsert({room_id:roomId,user_id:await meId()},{onConflict:'room_id,user_id',ignoreDuplicates:true}));joinedRooms.add(roomId);},
       async getRoomData(roomId){
-        const messages=await query(supabase.from('messages').select('*').eq('room_id',roomId).order('created_at',{ascending:false}).limit(100));
-        const emotes=await query(supabase.from('emotes').select('*').eq('room_id',roomId).order('created_at',{ascending:false}).limit(30));
-        const reactions=await query(supabase.from('message_reactions').select('*').eq('room_id',roomId));
-        const games=await query(supabase.from('game_sessions').select('*').eq('room_id',roomId).order('created_at',{ascending:false}).limit(1));
+        // Fetch independent resources together; international latency adds up if each request waits on the previous one.
+        const [messagesDesc,emotesDesc,reactions,games,members,blocked] = await Promise.all([
+          query(supabase.from('messages').select('*').eq('room_id',roomId).order('created_at',{ascending:false}).limit(100)),
+          query(supabase.from('emotes').select('*').eq('room_id',roomId).order('created_at',{ascending:false}).limit(30)),
+          query(supabase.from('message_reactions').select('*').eq('room_id',roomId)),
+          query(supabase.from('game_sessions').select('*').eq('room_id',roomId).order('created_at',{ascending:false}).limit(1)),
+          query(supabase.from('room_members').select('user_id').eq('room_id',roomId)),
+          query(supabase.from('blocks').select('blocked_id').eq('blocker_id',await meId()))
+        ]);
+        const messages=[...messagesDesc].reverse();
+        const emotes=[...emotesDesc].reverse();
         const game=games[0]||null;
-        const actions=game?await query(supabase.from('game_actions').select('*').eq('game_id',game.id)):[];
-        const members=await query(supabase.from('room_members').select('user_id').eq('room_id',roomId));
         const ids=[...new Set([...(members||[]).map(x=>x.user_id),...messages.map(x=>x.user_id),...emotes.map(x=>x.user_id),...(game?.created_by?[game.created_by]:[])])];
-        const participants=ids.length?await query(supabase.from('profiles').select('*').in('id',ids)):[];
-        const blocked=await query(supabase.from('blocks').select('blocked_id').eq('blocker_id',await meId()));
-        return {messages:[...messages].reverse(),emotes:[...emotes].reverse(),reactions,game,actions,participants,blockedIds:blocked.map(x=>x.blocked_id)};
+        const [actions,participants] = await Promise.all([
+          game?query(supabase.from('game_actions').select('*').eq('game_id',game.id)):Promise.resolve([]),
+          ids.length?query(supabase.from('profiles').select('*').in('id',ids)):Promise.resolve([])
+        ]);
+        return {messages,emotes,reactions,game,actions,participants,blockedIds:blocked.map(x=>x.blocked_id)};
       },
-      async sendMessage(roomId,text){await query(supabase.from('messages').insert({room_id:roomId,user_id:await meId(),body:text.trim()}));},
+            async sendMessage(roomId,text){await query(supabase.from('messages').insert({room_id:roomId,user_id:await meId(),body:text.trim()}));},
       async sendEmote(roomId,emote){await query(supabase.from('emotes').insert({room_id:roomId,user_id:await meId(),emote}));},
       async reactToMessage(roomId,messageId,emoji){await query(supabase.from('message_reactions').upsert({room_id:roomId,message_id:messageId,user_id:await meId(),emoji},{onConflict:'message_id,user_id,emoji',ignoreDuplicates:true}));},
       async startGame(roomId,kind){await query(supabase.rpc('start_room_game',{p_room_id:roomId,p_kind:kind}));},
@@ -421,13 +429,24 @@ body{font-family:'DM Sans',system-ui,sans-serif}
       async getLeaderboard(roomId){const actions=await query(supabase.from('game_actions').select('user_id,choice,correct').eq('room_id',roomId).limit(1000));const points=new Map();for(const a of actions)points.set(a.user_id,(points.get(a.user_id)||0)+(a.correct?100:a.choice?20:0));const ids=[...points.keys()];const profiles=ids.length?await query(supabase.from('profiles').select('id,display_name,avatar').in('id',ids)):[];return ids.map(id=>({profile:profiles.find(p=>p.id===id),xp:points.get(id),level:Math.floor(points.get(id)/300)+1})).filter(x=>x.profile).sort((a,b)=>b.xp-a.xp).slice(0,20);},
       async blockUser(id){await query(supabase.from('blocks').upsert({blocker_id:await meId(),blocked_id:id},{onConflict:'blocker_id,blocked_id',ignoreDuplicates:true}));},
       async reportMessage(messageId,reason){await query(supabase.from('reports').insert({reporter_id:await meId(),message_id:messageId,reason}));},
-      watchRoom(roomId,callback,onPresence){let subs;let active=true;let delay;const reload=()=>{clearTimeout(delay);delay=setTimeout(()=>{if(active)callback();},180)};
-        subs=supabase.channel('room:'+roomId,{config:{private:true,presence:{key:app.me.id}}});
-        for(const table of ['messages','emotes','message_reactions','game_sessions','game_actions','room_members'])subs.on('postgres_changes',{event:'*',schema:'public',table,filter:'room_id=eq.'+roomId},reload);
-        subs.on('presence',{event:'sync'},()=>{const state=subs.presenceState();onPresence(Object.values(state).flat().filter(p=>p.id).map(p=>({id:p.id,name:p.name,avatar:p.avatar})));});
-        subs.subscribe(async (status,error)=>{if(status==='SUBSCRIBED'){try{await subs.track({id:app.me.id,name:app.me.display_name,avatar:app.me.avatar});}catch(e){console.warn('Presence error:',e);}}else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){console.warn('Realtime channel:',status,error);}});
-        const timer=setInterval(reload,8000);
-        return ()=>{active=false;clearTimeout(delay);clearInterval(timer);supabase.removeChannel(subs);};
+      watchRoom(roomId,callback,onPresence){let subs;let active=true;let delay;const reload=()=>{clearTimeout(delay);delay=setTimeout(()=>{if(active)callback();},90)};
+        const connect=async()=>{
+          try{
+            await supabase.realtime.setAuth();
+            if(!active)return;
+            subs=supabase.channel('room:'+roomId,{config:{private:true,presence:{key:app.me.id,enabled:true}}});
+            for(const table of ['messages','emotes','message_reactions','game_sessions','game_actions','room_members']){
+              subs.on('postgres_changes',{event:'*',schema:'public',table,filter:'room_id=eq.'+roomId},reload);
+            }
+            subs.on('presence',{event:'sync'},()=>{const state=subs.presenceState();if(active)onPresence(Object.values(state).flat().filter(p=>p.id).map(p=>({id:p.id,name:p.name,avatar:p.avatar})));});
+            subs.on('system','*',event=>{if(event?.extension==='postgres_changes'&&event?.status==='ok')reload();});
+            subs.subscribe(async(status,error)=>{if(!active)return;if(status==='SUBSCRIBED'){reload();try{await subs.track({id:app.me.id,name:app.me.display_name,avatar:app.me.avatar});}catch(e){console.warn('Presence error',e);}}else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){console.warn('Realtime channel',status,error);}});
+          }catch(e){console.warn('Realtime setup failed; polling remains available',e);}
+        };
+        void connect();
+        // Fall back only when the page is visible; realtime is preferred for immediate messages.
+        const timer=setInterval(()=>{if(!document.hidden)reload();},4000);
+        return ()=>{active=false;clearTimeout(delay);clearInterval(timer);if(subs)void supabase.removeChannel(subs);};
       }
     };
   }
