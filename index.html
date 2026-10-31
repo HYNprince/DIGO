@@ -258,7 +258,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
 .dm-block{border:2px solid var(--ink);background:#ffa9cd;border-radius:7px;padding:6px 9px;font:800 9px Syne,sans-serif;cursor:pointer}
 @media(max-width:660px){.room-header .header-actions .icon-btn:last-child{display:grid!important}.header-actions [data-action="leaderboard-open"],.header-actions [data-action="share-room"]{display:none!important}.header-actions .social-shortcut{display:grid!important}.header-actions{gap:5px}}
 </style>
-  <script>window.DIGO_CONFIG={supabaseUrl:"",supabaseAnonKey:""};</script>
+  <script>window.DIGO_CONFIG={supabaseUrl:"https://ubuhxdtmglxifwhaogkb.supabase.co",supabaseAnonKey:"sb_publishable_HjmF307ZtKBTR5vbC9DrFg_0O61u0uS"};</script>
   
 </head>
 <body><div id="app"></div><script>/* DIGO v1.6 — social beta: friend-only DMs, expanded games, leaderboard and room customization. */
@@ -424,7 +424,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
         subs=supabase.channel('room:'+roomId,{config:{private:true,presence:{key:app.me.id}}});
         for(const table of ['messages','emotes','message_reactions','game_sessions','game_actions','room_members'])subs.on('postgres_changes',{event:'*',schema:'public',table,filter:'room_id=eq.'+roomId},reload);
         subs.on('presence',{event:'sync'},()=>{const state=subs.presenceState();onPresence(Object.values(state).flat().filter(p=>p.id).map(p=>({id:p.id,name:p.name,avatar:p.avatar})));});
-        subs.subscribe(async status=>{if(status==='SUBSCRIBED'){try{await subs.track({id:app.me.id,name:app.me.display_name,avatar:app.me.avatar});}catch(e){console.warn(e);}}});
+        subs.subscribe(async (status,error)=>{if(status==='SUBSCRIBED'){try{await subs.track({id:app.me.id,name:app.me.display_name,avatar:app.me.avatar});}catch(e){console.warn('Presence error:',e);}}else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'){console.warn('Realtime channel:',status,error);}});
         const timer=setInterval(reload,8000);
         return ()=>{active=false;clearTimeout(delay);clearInterval(timer);supabase.removeChannel(subs);};
       }
