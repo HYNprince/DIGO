@@ -85,3 +85,10 @@ on conflict (user_id) do nothing;
 **Limitations:** This is a limited beta moderation tool, not a fully tested public trust-and-safety operation. Before a broad launch, test RLS and RPC authorization with admin and ordinary accounts, add a permanent recoverable admin sign-in (anonymous guest sessions can be lost), document reporting and appeals, and arrange timely moderator review. Test the SQL on a separate/staging project before running it against important real data.
 
 **Friend alerts:** Pending friend requests now show an unread-count badge after a periodic refresh while DIGO is open, without external push notifications. Live chat and mini-games continue working as before.
+
+
+## 🚀 DIGO v1.9 — Limited Public Beta
+
+**[Open DIGO](https://hynprince.github.io/DIGO/)** · **[Community rules & privacy basics](community.html)** · **[Beta launch checklist](BETA-LAUNCH.md)**
+
+The beta is open for small-scale testing. Anonymous guest login uses Cloudflare Turnstile, rooms use Supabase Realtime, and a server-checked moderation desk handles reported content. **This is not a fully audited, large-scale public launch.** Before promoting widely, complete the live security/reporting tests in the checklist, establish recoverable moderator access, and provide an account/data deletion contact path.
