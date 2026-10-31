@@ -745,7 +745,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
     app.view='chat';app.resetScroll=true;app.composer='';app.replyTo=null;app.guess='';app.gameFeedback='';
     app.chatSearch='';app.searchOpen=false;app.socialOpen=false;app.leaderboardOpen=false;app.roomSettingsOpen=false;
     draw(); // Switch immediately; do not wait for international database requests.
-    await app.service.joinRoom(id);
+    if(!app.suspendedUntil||new Date(app.suspendedUntil).getTime()<=Date.now())await app.service.joinRoom(id);
     if(turn!==roomSwitchVersion)return;
     await refreshRoom();
     if(turn!==roomSwitchVersion)return;
