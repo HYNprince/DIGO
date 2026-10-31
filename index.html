@@ -381,7 +381,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
   async function createLiveService(cfg){
     await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';script.onload=resolve;script.onerror=()=>reject(Error('Could not load Supabase SDK; check internet access.'));document.head.appendChild(script);});
     const supabase=window.supabase.createClient(cfg.supabaseUrl,cfg.supabaseAnonKey,{auth:{persistSession:true,autoRefreshToken:true}});
-    const meId=async()=>{const {data:{user},error}=await supabase.auth.getUser();if(error)throw error;return user?.id||null;};
+    const meId=async()=>{const {data:{session},error:sessionError}=await supabase.auth.getSession();if(sessionError)throw sessionError;if(!session)return null;const {data:{user},error}=await supabase.auth.getUser();if(error){if(error.name==='AuthSessionMissingError'||error.code==='session_not_found')return null;throw error;}return user?.id||null;};
     const query=async request=>{const {data,error}=await request;if(error)throw error;return data;};
     return {mode:'live',
       async getMe(){const id=await meId();if(!id)return null;return await query(supabase.from('profiles').select('*').eq('id',id).maybeSingle());},
@@ -562,7 +562,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
     if(a==='report-open'){app.reportTarget=d.message;draw();return;}
     if(a==='report-send')return run(async()=>{await app.service.reportMessage(app.reportTarget,d.reason);app.reportTarget=null;app.viewProfileId=null;draw();notify(app.service.mode==='demo'?'Demo report recorded locally.':'Report submitted for review.');});
   });
-  async function boot(){root.innerHTML='<div class="loading-screen"><div class="loading-logo">digo<span>.</span></div><p>Making room for your vibe...</p></div>';try{const cfg=window.DIGO_CONFIG||{};app.service=cfg.supabaseUrl&&cfg.supabaseAnonKey?await createLiveService(cfg):createDemoService();app.me=await app.service.getMe();app.draft={...DEF_AVATAR};if(app.me)await afterAuth();else draw();}catch(e){console.error(e);root.innerHTML=`<div class="loading-screen"><h2>Could not start DIGO</h2><p>${esc(e?.message||'Unknown error')}</p><p>Check config.js or remove invalid Supabase keys to use the local demo.</p></div>`;}}
+  async function boot(){root.innerHTML='<div class="loading-screen"><div class="loading-logo">digo<span>.</span></div><p>Making room for your vibe...</p></div>';try{const cfg=window.DIGO_CONFIG||{};app.service=cfg.supabaseUrl&&cfg.supabaseAnonKey?await createLiveService(cfg):createDemoService();app.me=await app.service.getMe();app.draft={...DEF_AVATAR};if(app.me)await afterAuth();else draw();}catch(e){console.error(e);root.innerHTML=`<div class="loading-screen"><h2>Could not start DIGO</h2><p>${esc(e?.message||'Unknown error')}</p><p>Check your internet connection or Supabase configuration, then refresh.</p></div>`;}}
   boot();
   setInterval(()=>{if(app.me && app.service?.mode==='demo'&&!app.socialOpen&&!app.roomSettingsOpen)refreshRoom();},8000);
 })();
