@@ -44,3 +44,17 @@ New controls in the chat room:
 **Until the migration runs**, delete/edit/reply operations may show a database error. Basic chat works as before. Do not rerun the full v1.6 setup. Room deletion and deleting other people's messages are intentionally not offered to normal users. Reported-message snapshots are stored privately for moderation review, while deleted message content is replaced in the public chat.
 
 DIGO is still an early public beta. Keep testing with trusted people until anonymous-signup protection, abuse moderation, and database access policies have been independently verified.
+
+## DIGO v1.8 — Cloudflare Turnstile protection
+
+The public **Site Key** is embedded in `index.html`. No private Turnstile Secret Key should ever be checked into GitHub.
+
+To finish activation:
+
+1. Check the sign-in widget renders on `https://hynprince.github.io/DIGO/` in a private/incognito window. Disable content blockers for the site if the widget cannot load.
+2. In **Supabase → DIGO → Authentication → Attack Protection** (sometimes displayed as Bot and Abuse Protection), enable CAPTCHA with **Cloudflare Turnstile**.
+3. Copy the **Secret Key directly from Cloudflare Turnstile** into the Supabase CAPTCHA Secret Key setting; **never** paste the secret into DIGO source code, GitHub or chat.
+4. Save the Supabase setting, then test *new anonymous signup* in a fresh private window on a phone and laptop. Existing anonymous user sessions will not require a new CAPTCHA token for returning to their current session.
+5. If signup fails, turn off CAPTCHA temporarily in Supabase while fixing the frontend/provider mismatch; do not remove or publish the private key.
+
+The site uses explicit Turnstile rendering for dynamically generated onboarding, refreshes expired/used tokens and passes `captchaToken` only to `signInAnonymously`. This reduces automated anonymous signups but does not replace moderation, rate limits or database access policies.
