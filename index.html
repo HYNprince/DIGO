@@ -304,10 +304,27 @@ body{font-family:'DM Sans',system-ui,sans-serif}
   .presence-empty{padding:12px;background:#fff8df;border:1px dashed #aaa0be;border-radius:8px;font-size:11px;color:#514860}
   .stage-pill{white-space:nowrap}
   </style>
+  <style>
+  .digo-voice-panel{background:#eddefc;border-bottom:2px solid #242033;padding:10px 15px;display:grid;gap:6px}
+  .digo-voice-heading{display:flex;justify-content:space-between;gap:8px;align-items:center}
+  .digo-voice-heading strong{font:800 11px Syne,system-ui,sans-serif;letter-spacing:.03em}
+  .digo-voice-heading small{font:600 10px 'DM Sans',system-ui,sans-serif;display:block;margin-top:3px}
+  .digo-voice-pill{background:#fff8e8;border:2px solid #242033;border-radius:20px;font:800 9px Syne,system-ui,sans-serif;padding:4px 7px}
+  .digo-voice-controls{display:flex;flex-wrap:wrap;gap:7px;align-items:center}
+  .digo-voice-controls button{font:800 10px Syne,system-ui,sans-serif;padding:8px 10px;border-radius:9px;border:2px solid #242033;background:#ffec83;box-shadow:2px 2px 0 #242033;cursor:pointer}
+  .digo-voice-controls button:disabled{opacity:.6;cursor:wait}
+  .digo-voice-controls .voice-join{background:#d8ff87}
+  .digo-voice-controls .voice-leave{background:#ffa9cd}
+  .digo-voice-controls .voice-listen{background:#b4e6ff}
+  .voice-members{font-size:10px;font-weight:700;overflow:hidden;text-overflow:ellipsis}
+  .voice-note{font-size:9px!important;line-height:1.3!important;color:#61576a;margin:0!important}
+  .voice-warning{font-size:11px;color:#9d174d;margin:4px 0}
+  @media(max-width:650px){.digo-voice-panel{padding:9px}.digo-voice-heading strong{font-size:10px}.voice-note{font-size:8px}}
+  </style>
   <script>window.DIGO_CONFIG={supabaseUrl:"https://ubuhxdtmglxifwhaogkb.supabase.co",supabaseAnonKey:"sb_publishable_HjmF307ZtKBTR5vbC9DrFg_0O61u0uS",turnstileSiteKey:"0x4AAAAAAFt53gWhIuRTtiWc"};</script>
   
 </head>
-<body><div id="app"></div><script>/* DIGO v1.6 — social beta: friend-only DMs, expanded games, leaderboard and room customization. */
+<body><div id="app"></div><script src="./voice.js"></script><script>/* DIGO v1.6 — social beta: friend-only DMs, expanded games, leaderboard and room customization. */
 (() => {
   'use strict';
   const root = document.getElementById('app');
@@ -359,7 +376,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
   const hashColor = n => n % 6;
   const fmtTime = t => new Date(t).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
   const clamp = (value,min,max) => Math.max(min,Math.min(max,value));
-  const app = {service:null, me:null, rooms:[], roomId:PUBLIC_ROOMS[0].id, roomData:null, lastFailure:null, pendingMessages:[], replyTo:null, unreadRooms:new Set(), unreadSince:new Date().toISOString(), peers:[], presenceStatus:'connecting', view:'chat', draft:{...DEF_AVATAR}, draftName:'', profileOpen:false, makeRoomOpen:false, reportTarget:null, inviteOpen:false, notify:'', busy:false, gameFeedback:'', focusGuess:false, lastEmote:null,viewProfileId:null,dmReportTarget:null,chatSearch:'',searchOpen:false,socialOpen:false,leaderboardOpen:false,roomSettingsOpen:false,socialTab:'friends',social:null,peopleSearch:[],searchingPeople:false,socialQuery:'',dmPeer:null,dmDraft:'',leaderboard:[],adminOpen:false,isAdmin:false,adminQueue:null,suspendedUntil:null,friendRequestCount:0,roomEdit:{name:'',description:'',icon:'✳'}};
+  const app = {service:null, me:null, rooms:[], roomId:PUBLIC_ROOMS[0].id, roomData:null, lastFailure:null, pendingMessages:[], replyTo:null, unreadRooms:new Set(), unreadSince:new Date().toISOString(), peers:[], presenceStatus:'connecting', voiceStatus:'off', voiceSession:null, voiceMembers:[], voiceMuted:false, voiceAudioBlocked:false, voiceError:'', view:'chat', draft:{...DEF_AVATAR}, draftName:'', profileOpen:false, makeRoomOpen:false, reportTarget:null, inviteOpen:false, notify:'', busy:false, gameFeedback:'', focusGuess:false, lastEmote:null,viewProfileId:null,dmReportTarget:null,chatSearch:'',searchOpen:false,socialOpen:false,leaderboardOpen:false,roomSettingsOpen:false,socialTab:'friends',social:null,peopleSearch:[],searchingPeople:false,socialQuery:'',dmPeer:null,dmDraft:'',leaderboard:[],adminOpen:false,isAdmin:false,adminQueue:null,suspendedUntil:null,friendRequestCount:0,roomEdit:{name:'',description:'',icon:'✳'}};
   const notify = text => {app.notify=text; draw(); clearTimeout(notify.timer); notify.timer=setTimeout(()=>{app.notify='';document.querySelector('.toast')?.remove();},3500);};
   const showFailure=(stage,e)=>{const detail=String(e?.message||'Unknown issue');const code=String(e?.code||'');app.lastFailure={stage,detail,code};console.warn('DIGO '+stage+':',e);draw();};
   // Turnstile tokens are single-use. Render explicitly because DIGO redraws its onboarding UI.
@@ -448,6 +465,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
     const me=()=>{const id=storage.getItem('digo:current-user');return id?storeRead().profiles.find(p=>p.id===id):null;};
     return {mode:'demo',
       async getMe(){return me()||null;},
+      async joinVoice(){throw Error('Voice is only available in private rooms on the live DIGO website.');},
       async getModerationStatus(){return {is_admin:false,suspended_until:null};},
       async getAdminQueue(){throw Error('Admin console needs live mode');},
       async adminReview(){throw Error('Only live mode supports this');},
@@ -496,6 +514,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
     const joinedRooms=new Set();
     return {mode:'live',
       async getMe(){const id=await meId();if(!id)return null;return await query(supabase.from('profiles').select('*').eq('id',id).maybeSingle());},
+      async joinVoice(roomId,onStatus){if(!window.DIGOVoice)throw Error('Voice module could not load. Refresh DIGO.');return await window.DIGOVoice.join({supabase,roomId,user:app.me,onStatus});},
       async getModerationStatus(){return await query(supabase.rpc('digo_account_status'));},
       async getAdminQueue(){return await query(supabase.rpc('digo_admin_queue'));},
       async adminReview(kind,id,decision){await query(supabase.rpc('digo_admin_review',{p_kind:kind,p_report_id:id,p_decision:decision}));},
@@ -662,7 +681,66 @@ body{font-family:'DM Sans',system-ui,sans-serif}
   function renderGame(){const g=app.roomData?.game,active=isLiveGame(g),actions=app.roomData?.actions||[];const iPlayed=g&&actions.find(a=>a.user_id===app.me.id);const voteA=actions.filter(a=>a.choice==='a').length,voteB=actions.filter(a=>a.choice==='b').length;const sum=Math.max(1,voteA+voteB);return `<div class="game-panel-inner"><div class="panel-label">02 / PLAY SOMETHING <span>✳</span></div><div class="game-hero"><div class="game-icon">🎮</div><h2>A LITTLE GAME<br>NEVER HURT.</h2><p>Pick a round. Drag the squad into it.</p></div>${active?`<div class="current-game"><span class="round-label"><i class="live-pulse"></i> LIVE ROUND · 2 MIN</span><h3>${({emoji_guess:'Emoji Guess 🧩',would_rather:'Would You Rather? ⚡',trivia:'Trivia Clash 🧠',word_rush:'Word Rush 🔤'}[g.kind]||'Mini-game')}</h3>${g.kind!=='would_rather'?`<div class="emoji-puzzle">${esc(g.emoji)}</div><p class="game-hint">${esc(g.prompt)}</p><div class="guess-row"><input class="text-field js-guess-input" placeholder="Type your guess..." maxlength="80" aria-label="Your guess" value="${esc(app.guess||'')}" ${iPlayed?'disabled':''}/><button class="button button-primary" data-action="guess" ${iPlayed?'disabled':''}>Guess</button></div><p class="game-subtext">${actions.filter(a=>a.correct).length} player(s) solved it${iPlayed?' · You got it! 🎉':''}</p>`:`<p class="game-hint">${esc(g.prompt)}</p><div class="vote-options"><button class="vote-option ${iPlayed?.choice==='a'?'selected':''}" data-action="vote" data-choice="a" ${iPlayed?'disabled':''}><span>A</span>${esc(g.option_a)}</button><button class="vote-option ${iPlayed?.choice==='b'?'selected':''}" data-action="vote" data-choice="b" ${iPlayed?'disabled':''}><span>B</span>${esc(g.option_b)}</button></div><div class="vote-result">${iPlayed?`<div class="vote-track"><span style="width:${voteA/sum*100}%"></span></div><div class="vote-count"><span>${Math.round(voteA/sum*100)}% picked A</span><span>${Math.round(voteB/sum*100)}% picked B</span></div>`:'Vote to reveal the room results.'}</div>`}${app.gameFeedback?`<div class="game-feedback">${esc(app.gameFeedback)}</div>`:''}</div>`:`<div class="game-picker"><div class="game-caption">PICK YOUR POISON ✦</div><button class="game-tile" data-action="start-game" data-kind="would_rather"><span class="tile-icon purple">⚡</span><span><strong>Would You Rather?</strong><small>Pick a side. See the split.</small></span><span class="tile-arrow">↗</span></button><button class="game-tile" data-action="start-game" data-kind="emoji_guess"><span class="tile-icon blue">🧩</span><span><strong>Emoji Guess</strong><small>Decode the emoji clues.</small></span><span class="tile-arrow">↗</span></button><button class="game-tile" data-action="start-game" data-kind="trivia"><span class="tile-icon blue">🧠</span><span><strong>Trivia Clash</strong><small>Fast questions. Real answers.</small></span><span class="tile-arrow">↗</span></button><button class="game-tile" data-action="start-game" data-kind="word_rush"><span class="tile-icon purple">🔤</span><span><strong>Word Rush</strong><small>Unscramble the hidden word.</small></span><span class="tile-arrow">↗</span></button>${g?'<p class="round-ended">Previous round ended. Start a new one!</p>':''}</div>`}<div class="games-bottom"><span>✦</span><div><strong>Up next</strong><p>Draw & Guess · Voice rooms · More party games</p></div></div></div>`;}
   function sidebar(){const privateRooms=app.rooms.filter(r=>r.is_private),publicRooms=app.rooms.filter(r=>!r.is_private);const rooms=r=>r.map(room=>`<button class="room-link ${room.id===app.roomId?'active':''}" data-action="room" data-room="${esc(room.id)}"><span class="room-icon">${esc(room.icon||'💬')}</span><span class="room-name">${esc(room.name)}</span>${room.id===app.roomId?'<span class="room-dot"></span>':app.unreadRooms.has(room.id)?'<span class="unread-dot" aria-label="New messages">NEW</span>':''}</button>`).join('');return `<aside class="sidebar"><div class="side-top"><div class="side-logo">${logo()}<span class="beta-tag">BETA</span></div><button class="icon-btn side-close" data-action="view" data-view="chat" title="Back to chat">✕</button></div><div class="side-account"><span class="account-icon">✳</span><div><strong>THE HANGOUT DESK</strong><small>Pick a room. Say something wild.</small></div></div><div class="side-section"><div class="section-heading">EXPLORE <span>⌄</span></div>${rooms(publicRooms)}</div><div class="side-section"><div class="section-heading">YOUR OWN ROOMS <button data-action="make-room-open" title="Create a private room">＋</button></div>${privateRooms.length?rooms(privateRooms):'<div class="no-room">No private rooms yet.<br>Make one for your friends!</div>'}<button class="create-room" data-action="make-room-open">＋ Create a space</button><button class="create-room" data-action="invite-open">↗ Join with invite</button></div><div class="side-section side-next"><div class="section-heading">NEXT LEVEL <span>✳</span></div><button class="create-room" data-action="social-open">★ Friends & messages ${app.friendRequestCount?`<span class="friend-alert">${app.friendRequestCount} NEW</span>`:""}</button><button class="create-room" data-action="leaderboard-open">🏆 Room leaderboard</button>${app.isAdmin?`<button class="create-room admin-shortcut" data-action="admin-open">🛡 Admin moderation</button>`:""}<button class="create-room" data-action="voice-info">🎙 Voice (requires setup)</button><a class="create-room digo-community-link" href="./community.html" target="_blank" rel="noopener">🛡 Safety & community rules</a></div><div class="sidebar-spacer"></div><div class="demo-sidebar-note">${app.service.mode==='demo'?'◉ DEMO: THIS BROWSER<br><small>Messages stay on this browser.</small>':'◉ SUPABASE LIVE<br><small>Connected online.</small>'}</div><button class="my-profile" data-action="profile-open">${avatarMini(app.me,45)}<span><strong>${esc(app.me.display_name)}</strong><small>Edit my ID</small></span><span class="profile-settings">⚙</span></button></aside>`;}
   function memberPanel(){const users=memberList().filter(x=>!isBlocked(x.id));return `<aside class="members-panel"><div class="members-head"><span>IN THIS SPACE</span><span class="member-count">${users.length}</span></div><div class="online-status">● <span>${app.service.mode==='demo'?'Sample residents + you':'Room members (not all online)'}</span></div>${users.map(p=>`<button class="member-item" data-action="member-profile" data-user="${esc(p.id)}">${avatarMini(p,42)}<div><strong>${esc(p.display_name)}</strong><small>#${tagCode(p.id)} · ${p.id===app.me.id?'You':p.sample?'Demo':'Member'}</small></div>${p.id===app.me.id?'<span class="self-star">✦</span>':''}</button>`).join('')}<div class="member-tip"><div>✨</div><strong>A room is better together.</strong><p>Invite someone to chat, emote, and play.</p><button data-action="share-room" class="button button-outline">${getCurrentRoom().is_private?'Copy invite link':'Share this room'} ↗</button></div></aside>`;}
-  function mainView(){const room=getCurrentRoom();return `<div class="app-shell">${sidebar()}<main class="main-column"><header class="room-header"><div class="header-room"><span class="header-room-emoji">${esc(room.icon)}</span><div><h1>${esc(room.name)}</h1><p>${esc(room.description||'Hangout with your friends')}</p></div></div><div class="header-actions"><button class="icon-btn social-shortcut" data-action="social-open" title="Friends and private messages">★${app.friendRequestCount?`<sup>${app.friendRequestCount}</sup>`:""}</button><button class="icon-btn" data-action="leaderboard-open" title="Room scoreboard">🏆</button>${app.isAdmin?`<button class="icon-btn" data-action="admin-open" title="Admin moderation">🛡</button>`:""}${room.is_private&&room.owner_id===app.me.id?'<button class="icon-btn" data-action="room-edit-open" title="Customize room">✎</button>':''}<span class="mobile-only-current"># ${esc(room.name)}</span><span class="live-indicator">${app.service.mode==='live'?'● LIVE':'● DEMO'}</span><button class="icon-btn" data-action="share-room" title="Share room">↗</button><button class="icon-btn" data-action="profile-open" title="Edit ID">⚙</button></div></header><div class="content-scroll ${app.view==='game'?'mobile-hide-content':''}">${app.suspendedUntil?`<div class="demo-banner suspended-banner"><strong>Account suspended</strong> · No chatting or games until ${esc(new Date(app.suspendedUntil).toLocaleString())}.</div>`:''}${app.service.mode==='demo'?'<div class="demo-banner">✦ <strong>Interactive demo</strong> — sample personas are fictional. Chat and games stay on this browser, not the internet. Connect Supabase for real multiplayer.</div>':''}${renderStage()}<section class="chat-feed">${renderMessages()}</section></div><button class="jump-latest" data-action="jump-latest" type="button" hidden>↓ NEWEST MESSAGES</button><form id="chat-form" class="chat-composer ${app.view==='game'?'mobile-hide-content':''}">${app.replyTo?`<div class="reply-compose" role="status"><span>↩ Replying to <strong>${esc(app.replyTo.name)}</strong>: ${esc(app.replyTo.body.slice(0,70))}</span><button type="button" data-action="reply-cancel" aria-label="Cancel reply">✕</button></div>`:''}<div class="composer-left">${avatarMini(app.me,35)}</div><input id="chat-input" class="chat-input" autocomplete="off" placeholder="Message #${esc(room.name)}" aria-label="Chat message" maxlength="500" value="${esc(app.composer||'')}"/><span class="composer-hint">↵ to send</span><button class="send-button" type="submit" aria-label="Send message">➤</button></form></main><div class="games-column ${app.view==='game'?'mobile-show-game':''}">${renderGame()}</div>${memberPanel()}<nav class="mobile-nav" aria-label="Mobile navigation"><button class="${app.view==='spaces'?'active':''}" data-action="view" data-view="spaces">⌂<span>Spaces</span></button><button class="${app.view==='chat'?'active':''}" data-action="view" data-view="chat">▤<span>Chat</span></button><button class="${app.view==='game'?'active':''}" data-action="view" data-view="game">🎮<span>Games</span></button><button data-action="social-open">★<span>Friends</span></button></nav></div>`;}
+  let voiceGeneration=0;
+  function renderVoicePanel(){
+  const room=getCurrentRoom();
+  if(!room.is_private||app.service.mode!=='live')return '';
+  const status=app.voiceStatus||'off';
+  const connected=status==='on',waiting=status==='connecting';
+  const members=(app.voiceMembers||[]).filter(p=>p?.id);
+  const display=members.map(p=>p.id===app.me.id?'You':String(p.name||'Member')).slice(0,6).join(' · ');
+  return `<section class="digo-voice-panel" aria-label="Private room voice chat">
+    <div class="digo-voice-heading"><div><strong>🎙 PRIVATE VOICE BETA</strong><small>${connected?'Connected · '+members.length+' in voice':waiting?'Connecting microphone and peers…':'Optional audio · join only when you choose'}</small></div>
+    <span class="digo-voice-pill">${connected?'● IN VOICE':waiting?'CONNECTING':'MIC OFF'}</span></div>
+    <div class="digo-voice-controls">
+    ${status==='off'?`<button type="button" data-action="voice-join" class="voice-join">🎤 JOIN VOICE</button>`:
+      `<button type="button" data-action="voice-mute" ${waiting?'disabled':''}>${app.voiceMuted?'🔇 UNMUTE':'🎙 MUTE'}</button>
+       <button type="button" data-action="voice-leave" class="voice-leave">✕ LEAVE VOICE</button>`}
+    ${app.voiceAudioBlocked?'<button type="button" data-action="voice-resume" class="voice-listen">▶ TAP TO HEAR</button>':''}
+    ${connected?`<span class="voice-members">${esc(display||'Waiting for others to join…')}</span>`:''}
+    </div>
+    ${app.voiceError?`<p class="voice-warning">${esc(app.voiceError)}</p>`:''}
+    <p class="voice-note">Invite-only rooms · No recording · Leave anytime · 4 participants recommended · Some networks need a TURN relay</p>
+  </section>`;
+}
+  function updateVoicePanelInPlace(){
+  const existing=document.querySelector('.digo-voice-panel');
+  if(!existing)return;
+  const w=document.createElement('div');w.innerHTML=renderVoicePanel();
+  if(w.firstElementChild)existing.replaceWith(w.firstElementChild);
+}
+  function stopVoice(){
+  ++voiceGeneration;
+  if(app.voiceSession){const session=app.voiceSession;app.voiceSession=null;void session.leave();}
+  app.voiceStatus='off';app.voiceMembers=[];app.voiceMuted=false;app.voiceAudioBlocked=false;app.voiceError='';
+  updateVoicePanelInPlace();
+}
+  async function startVoice(){
+  if(app.voiceStatus!=='off')return;
+  const room=getCurrentRoom();
+  if(!room.is_private||app.service.mode!=='live')throw Error('Voice is only available in private, invite-only rooms.');
+  if(app.suspendedUntil&&new Date(app.suspendedUntil)>new Date())throw Error('Your account is temporarily suspended from calling.');
+  const generation=++voiceGeneration;
+  app.voiceStatus='connecting';app.voiceError='';updateVoicePanelInPlace();
+  try{
+    const session=await app.service.joinVoice(room.id,data=>{
+      if(generation!==voiceGeneration||app.roomId!==room.id)return;
+      app.voiceStatus=data.status||'on';
+      app.voiceMembers=data.members||[];
+      app.voiceMuted=!!data.muted;
+      app.voiceAudioBlocked=!!data.audioBlocked;
+      app.voiceError=data.error||'';
+      updateVoicePanelInPlace();
+    });
+    if(generation!==voiceGeneration||app.roomId!==room.id){void session.leave();return;}
+    app.voiceSession=session;app.voiceStatus='on';updateVoicePanelInPlace();
+  }catch(e){
+    if(generation!==voiceGeneration)return;
+    app.voiceStatus='off';app.voiceError=String(e?.message||e);updateVoicePanelInPlace();
+    console.warn('DIGO voice',e);
+  }
+}
+  function mainView(){const room=getCurrentRoom();return `<div class="app-shell">${sidebar()}<main class="main-column"><header class="room-header"><div class="header-room"><span class="header-room-emoji">${esc(room.icon)}</span><div><h1>${esc(room.name)}</h1><p>${esc(room.description||'Hangout with your friends')}</p></div></div><div class="header-actions"><button class="icon-btn social-shortcut" data-action="social-open" title="Friends and private messages">★${app.friendRequestCount?`<sup>${app.friendRequestCount}</sup>`:""}</button><button class="icon-btn" data-action="leaderboard-open" title="Room scoreboard">🏆</button>${app.isAdmin?`<button class="icon-btn" data-action="admin-open" title="Admin moderation">🛡</button>`:""}${room.is_private&&room.owner_id===app.me.id?'<button class="icon-btn" data-action="room-edit-open" title="Customize room">✎</button>':''}<span class="mobile-only-current"># ${esc(room.name)}</span><span class="live-indicator">${app.service.mode==='live'?'● LIVE':'● DEMO'}</span><button class="icon-btn" data-action="share-room" title="Share room">↗</button><button class="icon-btn" data-action="profile-open" title="Edit ID">⚙</button></div></header>${renderVoicePanel()}<div class="content-scroll ${app.view==='game'?'mobile-hide-content':''}">${app.suspendedUntil?`<div class="demo-banner suspended-banner"><strong>Account suspended</strong> · No chatting or games until ${esc(new Date(app.suspendedUntil).toLocaleString())}.</div>`:''}${app.service.mode==='demo'?'<div class="demo-banner">✦ <strong>Interactive demo</strong> — sample personas are fictional. Chat and games stay on this browser, not the internet. Connect Supabase for real multiplayer.</div>':''}${renderStage()}<section class="chat-feed">${renderMessages()}</section></div><button class="jump-latest" data-action="jump-latest" type="button" hidden>↓ NEWEST MESSAGES</button><form id="chat-form" class="chat-composer ${app.view==='game'?'mobile-hide-content':''}">${app.replyTo?`<div class="reply-compose" role="status"><span>↩ Replying to <strong>${esc(app.replyTo.name)}</strong>: ${esc(app.replyTo.body.slice(0,70))}</span><button type="button" data-action="reply-cancel" aria-label="Cancel reply">✕</button></div>`:''}<div class="composer-left">${avatarMini(app.me,35)}</div><input id="chat-input" class="chat-input" autocomplete="off" placeholder="Message #${esc(room.name)}" aria-label="Chat message" maxlength="500" value="${esc(app.composer||'')}"/><span class="composer-hint">↵ to send</span><button class="send-button" type="submit" aria-label="Send message">➤</button></form></main><div class="games-column ${app.view==='game'?'mobile-show-game':''}">${renderGame()}</div>${memberPanel()}<nav class="mobile-nav" aria-label="Mobile navigation"><button class="${app.view==='spaces'?'active':''}" data-action="view" data-view="spaces">⌂<span>Spaces</span></button><button class="${app.view==='chat'?'active':''}" data-action="view" data-view="chat">▤<span>Chat</span></button><button class="${app.view==='game'?'active':''}" data-action="view" data-view="game">🎮<span>Games</span></button><button data-action="social-open">★<span>Friends</span></button></nav></div>`;}
 
   function renderSocial(){
     const social=app.social||{friends:[],received:[],sent:[]};
@@ -792,6 +870,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
     if(!app.rooms.some(r=>r.id===id))throw Error('Room not available');
     const turn=++roomSwitchVersion;
     refreshVersion++;
+    stopVoice();
     watchStop?.();watchStop=null;
     clearTimeout(refreshTimer);
     app.peers=[];app.presenceStatus=app.service.mode==='live'?'connecting':'connected';app.roomId=id;seenRoom(id);
@@ -861,7 +940,11 @@ body{font-family:'DM Sans',system-ui,sans-serif}
     if(a==='room-edit-open'){const r=getCurrentRoom();if(!r.is_private||r.owner_id!==app.me.id)return notify('Only the room owner can customize this room.');app.roomEdit={icon:r.icon,name:r.name,description:r.description||''};app.roomSettingsOpen=true;draw();return;}
     if(a==='room-edit-icon'){app.roomEdit.icon=d.icon;draw();return;}
     if(a==='room-edit-save')return run(async()=>{const name=String(document.getElementById('room-edit-name')?.value||'').trim().slice(0,36),description=String(document.getElementById('room-edit-description')?.value||'').trim().slice(0,120);if(name.length<3)throw Error('Use a room name of at least 3 letters.');await app.service.updateRoom(app.roomId,{name,description,icon:app.roomEdit.icon});app.rooms=await app.service.getRooms();app.roomSettingsOpen=false;draw();notify('Room saved! ✳');});
-    if(a==='voice-info'){notify('Live voice needs a real HTTPS deployment, microphone permission, peer signaling and safety controls. It is not active in the local demo.');return;}
+    if(a==='voice-info'){notify('🎙 Voice Beta: create a private room, invite friends, then press JOIN VOICE. Microphone access is required.');return;}
+    if(a==='voice-join'){void startVoice().catch(e=>{app.voiceStatus='off';app.voiceError=String(e.message||e);updateVoicePanelInPlace();});return;}
+    if(a==='voice-leave'){stopVoice();return;}
+    if(a==='voice-mute'){if(app.voiceSession){app.voiceMuted=app.voiceSession.mute();updateVoicePanelInPlace();}return;}
+    if(a==='voice-resume'){if(app.voiceSession)void app.voiceSession.resumeAudio();return;}
     if(a==='demo-create-user')return run(async()=>{const name=trimName(document.getElementById('demo-account-name')?.value);if(name.length<2)throw Error('Enter a demo nickname (2+ characters).');watchStop?.();app.me=await app.service.makeDemoAccount(name);app.socialOpen=false;app.dmPeer=null;await afterAuth();notify('Switched to new demo ID. Open Friends to switch back.');});
     if(a==='demo-switch-user')return run(async()=>{watchStop?.();app.me=await app.service.switchDemoAccount(d.user);app.socialOpen=false;app.dmPeer=null;await afterAuth();notify('Switched demo ID.');});
     if(a==='dm-report-open'){app.dmReportTarget=d.message;draw();return;}
@@ -893,12 +976,13 @@ body{font-family:'DM Sans',system-ui,sans-serif}
     if(a==='start-game')return run(async()=>{await app.service.startGame(app.roomId,d.kind);app.gameFeedback='';app.guess='';app.view='game';await refreshRoom();});
     if(a==='vote')return run(async()=>{const res=await app.service.actOnGame(app.roomData.game.id,d.choice);app.gameFeedback=res.note;await refreshRoom();});
     if(a==='guess')return run(async()=>{const guess=(app.guess||'').trim();if(!guess)throw Error('Enter your guess first.');const res=await app.service.actOnGame(app.roomData.game.id,guess);app.gameFeedback=res.note;if(res.correct)app.guess='';await refreshRoom();});
-    if(a==='block')return run(async()=>{if(!confirm('Block this player? Their messages will be hidden for you.'))return;await app.service.blockUser(d.user);await refreshRoom();notify('Player blocked.');});
+    if(a==='block')return run(async()=>{if(!confirm('Block this player? Their messages will be hidden for you.'))return;stopVoice();await app.service.blockUser(d.user);await refreshRoom();notify('Player blocked.');});
     if(a==='report-open'){app.reportTarget=d.message;draw();return;}
     if(a==='report-send')return run(async()=>{await app.service.reportMessage(app.reportTarget,d.reason);app.reportTarget=null;app.viewProfileId=null;draw();notify(app.service.mode==='demo'?'Demo report recorded locally.':'Report submitted for review.');});
   });
   async function boot(){root.innerHTML='<div class="loading-screen"><div class="loading-logo">digo<span>.</span></div><p>Making room for your vibe...</p></div>';try{const cfg=window.DIGO_CONFIG||{};app.service=cfg.supabaseUrl&&cfg.supabaseAnonKey?await createLiveService(cfg):createDemoService();app.me=await app.service.getMe();app.draft={...DEF_AVATAR};if(app.me)await afterAuth();else draw();}catch(e){console.error(e);root.innerHTML=`<div class="loading-screen"><h2>Could not start DIGO</h2><p>${esc(e?.message||'Unknown error')}</p><p>Check your internet connection or Supabase configuration, then refresh.</p><button onclick="location.reload()" style="padding:12px 22px;border:2px solid #202033;background:#d7fb75;border-radius:9px;font-weight:bold;cursor:pointer">TRY AGAIN</button></div>`;}}
   boot();
+  window.addEventListener('pagehide',()=>stopVoice());
   window.addEventListener('pageshow',e=>{if(e.persisted&&app.me)void enterRoom(app.roomId).catch(err=>showFailure('reconnect room',err));});
   setInterval(()=>{void pollUnreadRooms();},12000);
   setInterval(async()=>{
