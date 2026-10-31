@@ -58,3 +58,30 @@ To finish activation:
 5. If signup fails, turn off CAPTCHA temporarily in Supabase while fixing the frontend/provider mismatch; do not remove or publish the private key.
 
 The site uses explicit Turnstile rendering for dynamically generated onboarding, refreshes expired/used tokens and passes `captchaToken` only to `signInAnonymously`. This reduces automated anonymous signups but does not replace moderation, rate limits or database access policies.
+
+## DIGO v1.9: moderation + friend-request alerts
+
+Frontend code is committed, but the admin panel stays hidden until the SQL migration and your admin identity are configured.
+
+### Activate moderation on the existing DIGO Supabase project
+
+1. Open [DIGO v1.9 moderation migration](supabase/DIGO-v1.9-Moderation.sql) on GitHub and select **Raw**.
+2. Copy the complete SQL script into **Supabase → DIGO → SQL Editor → New query**. Verify the project, review the script, then run it **once**. Do not rerun v1.6 or v1.7 migrations.
+3. Choose the exact DIGO account that should own moderation. On the same browser where that account is signed in, note the nickname, then find its UUID under **Supabase Authentication → Users**. A unique UID matters: two users can share a nickname.
+4. Using the SQL Editor, manually run the following, replacing the placeholder with the specific, verified Auth user UUID:
+
+```sql
+insert into digo_private.admins(user_id)
+values ('YOUR-VERIFIED-AUTH-USER-UUID'::uuid)
+on conflict (user_id) do nothing;
+```
+
+5. Refresh DIGO in the same browser. A yellow **🛡 Admin moderation** link should appear. Normal accounts must never see it.
+6. Using two non-admin test accounts, report a message. Verify the admin can review and optionally redact reported content, suspend a test sender, and restore that sender.
+7. Verify a suspended test account cannot post or start games. A suspension prevents writes; it is not a server-side sign-out.
+
+**Security:** The admin role and suspension data are stored in a non-exposed schema. All privileged operations check the caller's authenticated UUID on the database. No service-role key or admin UUID is hardcoded into the website. Report contents are visible only to admins through narrowly scoped functions, and only reported private DMs are exposed.
+
+**Limitations:** This is a limited beta moderation tool, not a fully tested public trust-and-safety operation. Before a broad launch, test RLS and RPC authorization with admin and ordinary accounts, add a permanent recoverable admin sign-in (anonymous guest sessions can be lost), document reporting and appeals, and arrange timely moderator review. Test the SQL on a separate/staging project before running it against important real data.
+
+**Friend alerts:** Pending friend requests now show an unread-count badge after a periodic refresh while DIGO is open, without external push notifications. Live chat and mini-games continue working as before.
