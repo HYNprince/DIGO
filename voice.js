@@ -27,7 +27,7 @@
 
     let active=true,subscribed=false,muted=false,audioBlocked=false;
     let members=[],channel=null;
-    const peers=new Map(), pendingCandidates=new Map(), audioNodes=new Map();
+    const peers=new Map(), pendingCandidates=new Map(), audioNodes=new Map(), waitingSignals=new Map();
 
     function update(status='on',error=''){
       if(!active)return;
@@ -102,7 +102,15 @@
       if(!active||!payload||payload.from===user.id||payload.to!==user.id)return;
       const from=String(payload.from||'');
       // Accept signaling only from an account currently advertising voice Presence.
-      if(!members.some(p=>p.id===from))return;
+      if(!members.some(p=>p.id===from)){
+        // Presence sync and offers can arrive in either order. Defer briefly rather than dropping the first offer.
+        if(waitingSignals.size<8||waitingSignals.has(from)){
+          const queued=waitingSignals.get(from)||[];
+          if(queued.length<40)queued.push(payload);
+          waitingSignals.set(from,queued);
+        }
+        return;
+      }
       if(payload.action==='bye'){disposePeer(from);return;}
       if(!['offer','answer','candidate'].includes(payload.action))return;
       try{
@@ -136,6 +144,11 @@
         if(p?.id&&!unique.has(p.id))unique.set(p.id,{id:p.id,name:p.name||'Member'});
       }
       members=[...unique.values()];
+      for(const person of members){
+        const queued=waitingSignals.get(person.id)||[];
+        waitingSignals.delete(person.id);
+        for(const message of queued)void incoming(message);
+      }
       const present=new Set(members.map(p=>p.id));
       for(const id of [...peers.keys()])if(!present.has(id))disposePeer(id);
       update('on');
