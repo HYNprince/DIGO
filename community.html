@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#fff9e8">
+<title>DIGO / Community & Privacy Basics</title>
+<meta name="description" content="Community guidelines, safety and privacy basics for the DIGO social gaming beta.">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap');
+:root{color-scheme:light;--ink:#242033;--cream:#fff9e8;--purple:#c9b9ff;--lime:#e2fb83;--pink:#ffc4da;--blue:#c5eeff}
+*{box-sizing:border-box}body{background:radial-gradient(#34314218 1.1px,transparent 1.1px),var(--cream);background-size:20px 20px;font-family:'DM Sans',system-ui,sans-serif;margin:0;color:var(--ink);line-height:1.65}
+a{color:inherit}a:hover{text-decoration-thickness:3px}
+.wrap{max-width:930px;margin:auto;padding:20px}
+header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;padding:14px 0 20px}
+.brand{font-family:Syne,system-ui,sans-serif;font-size:36px;font-weight:800;letter-spacing:-2px;text-decoration:none}
+.brand span{color:#8754e8}
+.back{border:2px solid var(--ink);background:var(--lime);border-radius:10px;padding:9px 13px;box-shadow:3px 3px 0 var(--ink);font-weight:800;text-decoration:none}
+.hero{border:3px solid var(--ink);border-radius:22px;background:var(--purple);box-shadow:8px 8px 0 var(--ink);padding:clamp(20px,5vw,40px);margin:20px 6px 30px 0}
+h1,h2{font-family:Syne,system-ui,sans-serif;line-height:1.08;letter-spacing:-.035em}h1{font-size:clamp(34px,8vw,62px);margin:12px 0}h2{font-size:26px;margin:0 0 15px}
+.kicker{display:inline-block;background:#fff;border:2px solid var(--ink);padding:4px 10px;border-radius:99px;font-weight:800;font-size:12px}
+.hero p{max-width:700px;font-size:17px}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.card{border:2px solid var(--ink);border-radius:16px;box-shadow:5px 5px 0 var(--ink);padding:24px;background:#fff}
+.card:nth-child(2){background:var(--lime)}.card:nth-child(3){background:var(--blue)}.card:nth-child(4){background:var(--pink)}
+.card ul{padding-left:18px}.card li{margin:9px 0}.card p{margin:8px 0}
+.note{border:2px dashed var(--ink);border-radius:12px;padding:18px;background:#fff;margin:24px 0}
+footer{font-size:13px;color:#595567;padding:20px 0 40px}
+@media(max-width:640px){.cards{grid-template-columns:1fr}.wrap{padding:15px}.hero{margin-right:7px}}
+</style>
+</head>
+<body><div class="wrap">
+<header><a class="brand" href="./">d<span>i</span>go.</a><a class="back" href="./">← BACK TO DIGO</a></header>
+<section class="hero"><span class="kicker">DIGO / LIMITED PUBLIC BETA ✳</span>
+<h1>YOUR SPACE.<br>EVERYONE'S RESPECT.</h1>
+<p>DIGO is an early-stage social chat and mini-games website. The community is still small and the features are being tested. Read this before chatting with other people.</p></section>
+<main class="cards">
+<section class="card"><h2>✳ Be a good human</h2><ul>
+<li>Respect others. No harassment, hate, threats, stalking or bullying.</li>
+<li>No sexual exploitation, explicit content involving minors, or requests for intimate photos.</li>
+<li>No impersonation, scams, spam, malicious links or attempts to steal accounts.</li>
+<li>No sharing another person's address, phone number or personal information without permission.</li>
+<li>Don't pressure people for money or to meet offline. Block and report suspicious behaviour.</li>
+</ul></section>
+<section class="card"><h2>🛡 Your safety controls</h2><ul>
+<li>Tap <strong>Report</strong> on a public-room message to flag abuse for review.</li>
+<li>Tap <strong>Block</strong> to hide another person and restrict interaction.</li>
+<li>Only approved mutual friends can exchange direct messages.</li>
+<li>Moderators can review reports, remove reported content and suspend accounts.</li>
+<li>Moderation is currently handled by a small beta team; reports are not monitored around the clock.</li>
+</ul></section>
+<section class="card"><h2>🔎 Privacy basics</h2>
+<p>You join with a guest nickname and color ID. DIGO creates an anonymous Supabase account ID and stores its login session in your browser. Clearing browser data or signing out may permanently lose that guest identity.</p>
+<p><strong>Public rooms are not private.</strong> Other room participants can read your messages and usernames. Friend-only DMs are not end-to-end encrypted. Do not post passwords, contact details or sensitive information.</p>
+<p>Chat messages, reactions, friendships and reports are stored through Supabase. Cloudflare Turnstile checks new guest logins. GitHub Pages hosts the website. We do not ask for a phone number or email for guest signup.</p>
+<p>Deleted chat content may be replaced by a marker, while the original text of a reported message can be retained privately as moderation evidence. A local <em>Clear for me</em> action does not erase server history.</p></section>
+<section class="card"><h2>🎮 Beta expectations</h2><ul>
+<li>DIGO is free during the beta and may change or experience interruptions.</li>
+<li>Report bugs to the project owner through <a href="https://github.com/HYNprince/DIGO">the DIGO GitHub project</a>; don't include private data in public issues.</li>
+<li>Do not treat other members as verified or assume a nickname matches a real-world identity.</li>
+<li>There is currently no self-service account export or deletion screen; these remain launch-readiness work.</li>
+<li>Additional child-safety, privacy and account recovery controls are needed before large-scale or youth-focused promotion.</li>
+</ul></section></main>
+<section class="note"><strong>Need help?</strong> Use a message's Report option for inappropriate content. For immediate danger, contact appropriate local emergency services rather than relying on DIGO moderation. For product questions and non-sensitive feedback, visit the DIGO GitHub project.</section>
+<footer>© 2026 DIGO · Beta community information · Updated 31 October 2026 · <a href="./">Return to the app</a></footer>
+</div></body></html>
