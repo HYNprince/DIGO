@@ -32,10 +32,10 @@ grant insert(reporter_id,message_id,reason) on public.reports to authenticated;
 
 -- Check reply target against the room through a fixed-purpose database function.
 create or replace function public.digo_reply_allowed(p_message uuid,p_room uuid)
-returns boolean language sql stable security definer set search_path=public,pg_temp as $
+returns boolean language sql stable security definer set search_path=public,pg_temp as $$
   select exists(select 1 from public.messages
                 where id=p_message and room_id=p_room and deleted_at is null);
-$;
+$$;
 revoke all on function public.digo_reply_allowed(uuid,uuid) from public;
 grant execute on function public.digo_reply_allowed(uuid,uuid) to authenticated;
 
