@@ -1,5 +1,6 @@
 -- DIGO v1.9: server-protected moderation (run once AFTER v1.6 and v1.7 migrations).
 -- Existing users, messages, rooms, and games are kept.
+-- DEADLOCK FIX: use short transactions when creating triggers, rather than one table-spanning loop.
 -- IMPORTANT: Admin accounts are intentionally NOT granted automatically.
 begin;
 
@@ -68,19 +69,9 @@ begin
   return new;
 end; $$;
 
--- Check the real JWT user before inserts; this also applies to SECURITY DEFINER RPCs.
-do $$
-declare t text;
-begin
-  foreach t in array array[
-    'messages','emotes','message_reactions','direct_messages',
-    'friend_requests','game_sessions','game_actions','game_guess_attempts',
-    'room_members','rooms'
-  ] loop
-    execute format('drop trigger if exists digo_suspension_check_v19 on public.%I',t);
-    execute format('create trigger digo_suspension_check_v19 before insert on public.%I for each row execute function digo_private.block_suspended_writes()',t);
-  end loop;
-end $$;
+-- Suspended-account enforcement triggers are created AFTER the core migration commits.
+-- This avoids a single transaction holding DDL locks across every active chat table.
+-- Each subsequent CREATE OR REPLACE is in its own short transaction.
 
 create or replace function public.digo_account_status()
 returns jsonb language plpgsql stable security definer set search_path='' as $$
@@ -219,6 +210,85 @@ grant execute on function public.digo_admin_remove_reported(text,uuid) to authen
 grant execute on function public.digo_admin_suspend(uuid,integer) to authenticated;
 
 commit;
+
+-- Install each trigger with its own commit, minimizing cross-table lock cycles.
+-- This section is safe to rerun if another database transaction interrupts it.
+-- CREATE OR REPLACE TRIGGER is supported by modern PostgreSQL versions.
+-- Protect public.messages; finish this table's lock before moving to the next.
+begin;
+create or replace trigger digo_suspension_check_v19
+before insert on public.messages
+for each row execute function digo_private.block_suspended_writes();
+commit;
+
+-- Protect public.emotes; finish this table's lock before moving to the next.
+begin;
+create or replace trigger digo_suspension_check_v19
+before insert on public.emotes
+for each row execute function digo_private.block_suspended_writes();
+commit;
+
+-- Protect public.message_reactions; finish this table's lock before moving to the next.
+begin;
+create or replace trigger digo_suspension_check_v19
+before insert on public.message_reactions
+for each row execute function digo_private.block_suspended_writes();
+commit;
+
+-- Protect public.direct_messages; finish this table's lock before moving to the next.
+begin;
+create or replace trigger digo_suspension_check_v19
+before insert on public.direct_messages
+for each row execute function digo_private.block_suspended_writes();
+commit;
+
+-- Protect public.friend_requests; finish this table's lock before moving to the next.
+begin;
+create or replace trigger digo_suspension_check_v19
+before insert on public.friend_requests
+for each row execute function digo_private.block_suspended_writes();
+commit;
+
+-- Protect public.game_sessions; finish this table's lock before moving to the next.
+begin;
+create or replace trigger digo_suspension_check_v19
+before insert on public.game_sessions
+for each row execute function digo_private.block_suspended_writes();
+commit;
+
+-- Protect public.game_actions; finish this table's lock before moving to the next.
+begin;
+create or replace trigger digo_suspension_check_v19
+before insert on public.game_actions
+for each row execute function digo_private.block_suspended_writes();
+commit;
+
+-- Protect public.game_guess_attempts; finish this table's lock before moving to the next.
+begin;
+create or replace trigger digo_suspension_check_v19
+before insert on public.game_guess_attempts
+for each row execute function digo_private.block_suspended_writes();
+commit;
+
+-- Protect public.room_members; finish this table's lock before moving to the next.
+begin;
+create or replace trigger digo_suspension_check_v19
+before insert on public.room_members
+for each row execute function digo_private.block_suspended_writes();
+commit;
+
+-- Protect public.rooms; finish this table's lock before moving to the next.
+begin;
+create or replace trigger digo_suspension_check_v19
+before insert on public.rooms
+for each row execute function digo_private.block_suspended_writes();
+commit;
+
+-- Verify installation; expected: ten tables listed, one trigger each.
+-- select event_object_table
+-- from information_schema.triggers
+-- where trigger_schema='public' and trigger_name='digo_suspension_check_v19'
+-- order by event_object_table;
 
 -- ACTIVATE YOUR ADMIN MANUALLY AFTER RUNNING:
 -- 1) In DIGO on your own browser, use a nickname you recognize.
