@@ -16,6 +16,10 @@ create table if not exists digo_private.suspensions (
   applied_by uuid references auth.users(id) on delete set null,
   updated_at timestamptz not null default now()
 );
+-- Defense in depth: private admin records must never be queryable by clients.
+-- SECDEF RPCs owned by postgres continue to work without client RLS policies.
+alter table digo_private.admins enable row level security;
+alter table digo_private.suspensions enable row level security;
 revoke all on all tables in schema digo_private from public,anon,authenticated;
 
 alter table public.reports
