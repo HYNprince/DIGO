@@ -313,7 +313,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
   const hashColor = n => n % 6;
   const fmtTime = t => new Date(t).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
   const clamp = (value,min,max) => Math.max(min,Math.min(max,value));
-  const app = {service:null, me:null, rooms:[], roomId:PUBLIC_ROOMS[0].id, roomData:null, lastFailure:null, peers:[], view:'chat', draft:{...DEF_AVATAR}, draftName:'', profileOpen:false, makeRoomOpen:false, reportTarget:null, inviteOpen:false, notify:'', busy:false, gameFeedback:'', focusGuess:false, lastEmote:null,viewProfileId:null,dmReportTarget:null,chatSearch:'',searchOpen:false,socialOpen:false,leaderboardOpen:false,roomSettingsOpen:false,socialTab:'friends',social:null,peopleSearch:[],searchingPeople:false,socialQuery:'',dmPeer:null,dmDraft:'',leaderboard:[],roomEdit:{name:'',description:'',icon:'✳'}};
+  const app = {service:null, me:null, rooms:[], roomId:PUBLIC_ROOMS[0].id, roomData:null, lastFailure:null, pendingMessages:[], peers:[], view:'chat', draft:{...DEF_AVATAR}, draftName:'', profileOpen:false, makeRoomOpen:false, reportTarget:null, inviteOpen:false, notify:'', busy:false, gameFeedback:'', focusGuess:false, lastEmote:null,viewProfileId:null,dmReportTarget:null,chatSearch:'',searchOpen:false,socialOpen:false,leaderboardOpen:false,roomSettingsOpen:false,socialTab:'friends',social:null,peopleSearch:[],searchingPeople:false,socialQuery:'',dmPeer:null,dmDraft:'',leaderboard:[],roomEdit:{name:'',description:'',icon:'✳'}};
   const notify = text => {app.notify=text; draw(); clearTimeout(notify.timer); notify.timer=setTimeout(()=>{app.notify='';document.querySelector('.toast')?.remove();},3500);};
   const showFailure=(stage,e)=>{const detail=String(e?.message||'Unknown issue');const code=String(e?.code||'');app.lastFailure={stage,detail,code};console.warn('DIGO '+stage+':',e);draw();};
   const randomDemoPersonas=[
@@ -471,7 +471,9 @@ body{font-family:'DM Sans',system-ui,sans-serif}
   function renderMessages(){
     const db=app.roomData;
     const blocked=db?.blockedIds||[];
-    const allMsgs=(db?.messages||[]).filter(m=>!blocked.includes(m.user_id));
+    const serverMsgs=db?.messages||[];
+    const localPending=(app.pendingMessages||[]).filter(p=>p.room_id===app.roomId&&!serverMsgs.some(m=>m.user_id===p.user_id&&m.body===p.body&&Math.abs(new Date(m.created_at)-new Date(p.created_at))<45000));
+    const allMsgs=[...serverMsgs,...localPending].sort((a,b)=>new Date(a.created_at)-new Date(b.created_at)).filter(m=>!blocked.includes(m.user_id));
     const term=(app.chatSearch||'').trim().toLocaleLowerCase();
     const msgs=term?allMsgs.filter(m=>String(m.body||'').toLocaleLowerCase().includes(term)||getProfile(m.user_id).display_name.toLocaleLowerCase().includes(term)):allMsgs;
     const html=msgs.map(m=>{
@@ -481,10 +483,10 @@ body{font-family:'DM Sans',system-ui,sans-serif}
       const grouped={};
       reactions.forEach(r=>grouped[r.emoji]=(grouped[r.emoji]||0)+1);
       const reactionBadges=Object.entries(grouped).map(([emoji,n])=>`<span class="reaction-count">${esc(emoji)} ${n}</span>`).join('');
-      const moderationButtons=(!own&&!m.sample)?`<button title="Report message" data-action="report-open" data-message="${esc(m.id)}">⚑ Report</button><button title="Block sender" data-action="block" data-user="${esc(m.user_id)}">⊘ Block</button>`:'';
+      const moderationButtons=(!own&&!m.sample&&!m.pending)?`<button title="Report message" data-action="report-open" data-message="${esc(m.id)}">⚑ Report</button><button title="Block sender" data-action="block" data-user="${esc(m.user_id)}">⊘ Block</button>`:'';
       return `<article class="chat-message ${own?'own-message':''}" data-message-id="${esc(m.id)}">
         ${avatarMini(user,38)}<div class="message-main">
-        <div class="message-head"><span class="message-author">${esc(user.display_name)}${own?'<small>YOU</small>':''}</span>${user.sample||m.sample?'<span class="sample-label">SAMPLE</span>':''}<time>${fmtTime(m.created_at)}</time></div>
+        <div class="message-head"><span class="message-author">${esc(user.display_name)}${own?'<small>YOU</small>':''}</span>${m.pending?'<span class="sample-label">SENDING…</span>':user.sample||m.sample?'<span class="sample-label">SAMPLE</span>':''}<time>${fmtTime(m.created_at)}</time></div>
         <div class="message-body">${esc(m.body)}</div>
         <div class="message-tools"><button title="React with 💜" data-action="react" data-message="${esc(m.id)}" data-emoji="💜">♡</button><button title="React with 😂" data-action="react" data-message="${esc(m.id)}" data-emoji="😂">☺</button>${moderationButtons}${reactionBadges}</div>
         </div></article>`;
@@ -523,15 +525,96 @@ body{font-family:'DM Sans',system-ui,sans-serif}
   function syncJumpToLatest(){const scroller=document.querySelector('.content-scroll');const button=document.querySelector('.jump-latest');if(!scroller||!button)return;button.hidden=scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<160||!!app.chatSearch;}
   function searchMessagesInPlace(){const q=(app.chatSearch||'').trim().toLocaleLowerCase();const cards=document.querySelectorAll('.chat-message');let count=0;cards.forEach(el=>{const show=!q||(el.textContent||'').toLocaleLowerCase().includes(q);el.hidden=!show;if(show)count++;});const info=document.querySelector('.search-bar small');if(info)info.textContent=count+' / '+cards.length;let empty=document.querySelector('.search-empty');if(!empty){empty=document.createElement('div');empty.className='search-empty';empty.textContent='NO MATCHES — TRY ANOTHER WORD ✳';document.getElementById('messages-list')?.append(empty);}empty.hidden=count!==0;}
   async function sendQuickMessage(body){await app.service.sendMessage(app.roomId,body);app.scrollToChat=true;await refreshRoom();}
-  let watchStop=null,refreshTimer=null;
-  async function refreshRoom(){if(!app.me||!app.service)return;const roomId=app.roomId;try{const data=await app.service.getRoomData(roomId);if(roomId===app.roomId){app.roomData=data;if(app.lastFailure?.stage==='room sync')app.lastFailure=null;if(!app.socialOpen&&!app.roomSettingsOpen&&!app.profileOpen&&!app.makeRoomOpen&&!app.inviteOpen)draw();}}catch(e){if(!app.lastFailure||app.lastFailure.stage!=='room sync'||app.lastFailure.detail!==String(e?.message||''))showFailure('room sync',e);}}
-  async function enterRoom(id){if(!app.rooms.some(r=>r.id===id))throw Error('Room not available');watchStop?.();app.peers=[];app.roomId=id;app.roomData=null;app.view='chat';app.resetScroll=true;app.composer='';app.guess='';app.gameFeedback='';app.chatSearch='';app.searchOpen=false;app.socialOpen=false;app.leaderboardOpen=false;app.roomSettingsOpen=false;await app.service.joinRoom(id);await refreshRoom();watchStop=app.service.watchRoom(id,()=>{clearTimeout(refreshTimer);refreshTimer=setTimeout(refreshRoom,120);},peers=>{app.peers=peers;});draw();}
+  let watchStop=null,refreshTimer=null,refreshVersion=0,roomSwitchVersion=0;
+  const roomCache=new Map();
+  const emptyRoom=()=>({messages:[],emotes:[],reactions:[],game:null,actions:[],participants:app.me?[app.me]:[],blockedIds:[]});
+  function updateRoomInPlace(previous){
+    const list=document.getElementById('messages-list');
+    const panel=document.querySelector('.chat-feed');
+    if(!list||!panel){draw();return;}
+    const scroller=document.querySelector('.content-scroll');
+    const nearBottom=!scroller||scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight<170;
+    const temp=document.createElement('div');temp.innerHTML=renderMessages();
+    const fresh=temp.querySelector('#messages-list');
+    if(fresh && fresh.innerHTML!==list.innerHTML)list.replaceWith(fresh);
+    if(app.searchOpen&&app.chatSearch)searchMessagesInPlace();
+    const stage=document.querySelector('.tag-stage-members');
+    if(stage){
+      const newStage=document.createElement('div');newStage.innerHTML=renderStage();
+      const memberTags=newStage.querySelector('.tag-stage-members');
+      if(memberTags&&stage.innerHTML!==memberTags.innerHTML)stage.replaceWith(memberTags);
+    }
+    const currentGame=app.roomData?.game,oldGame=previous?.game;
+    const gameChanged=currentGame?.id!==oldGame?.id||currentGame?.status!==oldGame?.status||(app.roomData?.actions?.length||0)!==(previous?.actions?.length||0);
+    if(gameChanged&&!document.activeElement?.classList?.contains('js-guess-input')){
+      const panel=document.querySelector('.game-panel-inner');
+      if(panel){const wrap=document.createElement('div');wrap.innerHTML=renderGame();const next=wrap.firstElementChild;if(next)panel.replaceWith(next);}
+    }
+    if(scroller&&(nearBottom||app.scrollToChat))scroller.scrollTop=scroller.scrollHeight;
+    app.scrollToChat=false;
+    syncJumpToLatest();
+  }
+  async function refreshRoom(){
+    if(!app.me||!app.service)return;
+    const roomId=app.roomId,request=++refreshVersion;
+    try{
+      const data=await app.service.getRoomData(roomId);
+      if(roomId!==app.roomId||request!==refreshVersion)return;
+      const previous=app.roomData;
+      app.roomData=data;roomCache.set(roomId,data);
+      if(app.lastFailure?.stage==='room sync')app.lastFailure=null;
+      if(!app.socialOpen&&!app.roomSettingsOpen&&!app.profileOpen&&!app.makeRoomOpen&&!app.inviteOpen){
+        if(document.querySelector('.app-shell'))updateRoomInPlace(previous);else draw();
+      }
+    }catch(e){
+      if(roomId===app.roomId&&request===refreshVersion&&(!app.lastFailure||app.lastFailure.stage!=='room sync'||app.lastFailure.detail!==String(e?.message||'')))showFailure('room sync',e);
+    }
+  }
+  async function enterRoom(id){
+    if(!app.rooms.some(r=>r.id===id))throw Error('Room not available');
+    const turn=++roomSwitchVersion;
+    refreshVersion++;
+    watchStop?.();watchStop=null;
+    clearTimeout(refreshTimer);
+    app.peers=[];app.roomId=id;
+    app.roomData=roomCache.get(id)||emptyRoom();
+    app.view='chat';app.resetScroll=true;app.composer='';app.guess='';app.gameFeedback='';
+    app.chatSearch='';app.searchOpen=false;app.socialOpen=false;app.leaderboardOpen=false;app.roomSettingsOpen=false;
+    draw(); // Switch immediately; do not wait for international database requests.
+    await app.service.joinRoom(id);
+    if(turn!==roomSwitchVersion)return;
+    await refreshRoom();
+    if(turn!==roomSwitchVersion)return;
+    watchStop=app.service.watchRoom(id,()=>{clearTimeout(refreshTimer);refreshTimer=setTimeout(refreshRoom,80);},peers=>{if(turn!==roomSwitchVersion)return;app.peers=peers;});
+  }
   async function afterAuth(){app.rooms=await app.service.getRooms();if(!app.rooms.length)throw Error('No DIGO rooms were returned. Check that the SQL setup ran on this Supabase project.');const params=new URLSearchParams(location.search);const code=params.get('invite');if(code){try{const r=await app.service.joinInvite(code);app.rooms=await app.service.getRooms();app.roomId=r.id;history.replaceState(null,'',location.pathname);}catch(e){app.notify='Invite could not be used: '+e.message;}}const lastRoom=storage.getItem('digo:last-room');if(lastRoom&&app.rooms.some(r=>r.id===lastRoom)&&!code)app.roomId=lastRoom;if(!app.rooms.some(r=>r.id===app.roomId))app.roomId=app.rooms[0]?.id||PUBLIC_ROOMS[0].id;await enterRoom(app.roomId);}
   async function run(asyncFn){if(app.busy){setTimeout(()=>run(asyncFn),70);return;}app.busy=true;try{await asyncFn();if(app.lastFailure?.stage!=='room sync')app.lastFailure=null;}catch(e){showFailure(e?.digoStage||'action failed',e);}finally{app.busy=false;}}
   document.addEventListener('input',e=>{const t=e.target;if(t.classList?.contains('js-draft-name')){app.draftName=t.value;const p=document.querySelector('.identity-preview strong');if(p)p.textContent=trimName(t.value)||'Your name';const b=document.querySelector('.identity-preview-badge .id-badge');if(b)b.textContent=initials(trimName(t.value)||'Your name');}if(t.id==='chat-input')app.composer=t.value;if(t.id==='person-search')app.socialQuery=t.value;if(t.id==='dm-input')app.dmDraft=t.value;if(t.id==='room-edit-name')app.roomEdit.name=t.value;if(t.id==='room-edit-description')app.roomEdit.description=t.value;if(t.id==='chat-search'){app.chatSearch=t.value;searchMessagesInPlace();}if(t.classList?.contains('js-guess-input'))app.guess=t.value;});
   document.addEventListener('scroll',e=>{if(e.target?.classList?.contains('content-scroll'))syncJumpToLatest();},true);
   document.addEventListener('keydown',e=>{if(e.key==='Escape'&&(app.profileOpen||app.makeRoomOpen||app.reportTarget||app.inviteOpen||app.viewProfileId||app.socialOpen||app.leaderboardOpen||app.roomSettingsOpen||app.dmReportTarget)){app.profileOpen=app.makeRoomOpen=app.inviteOpen=app.socialOpen=app.leaderboardOpen=app.roomSettingsOpen=false;app.reportTarget=null;app.dmReportTarget=null;app.viewProfileId=null;app.dmPeer=null;draw();}if(e.key==='Enter'&&e.target.classList?.contains('js-guess-input')){e.preventDefault();document.querySelector('[data-action="guess"]')?.click();}});
-  document.addEventListener('submit',e=>{if(e.target?.id==='dm-form'){e.preventDefault();run(async()=>{const text=(app.dmDraft||'').trim();if(!text||!app.dmPeer)return;await app.service.sendDm(app.dmPeer,text);app.dmDraft='';await refreshSocial();requestAnimationFrame(()=>{const el=document.getElementById('dm-feed');if(el)el.scrollTop=el.scrollHeight;});});return;}if(e.target?.id!=='chat-form')return;e.preventDefault();run(async()=>{const text=(app.composer||'').trim();if(!text)return;await app.service.sendMessage(app.roomId,text);app.composer='';app.scrollToChat=true;await refreshRoom();document.getElementById('chat-input')?.focus();});});
+  document.addEventListener('submit',e=>{
+    if(e.target?.id==='dm-form'){e.preventDefault();run(async()=>{const text=(app.dmDraft||'').trim();if(!text||!app.dmPeer)return;await app.service.sendDm(app.dmPeer,text);app.dmDraft='';await refreshSocial();requestAnimationFrame(()=>{const el=document.getElementById('dm-feed');if(el)el.scrollTop=el.scrollHeight;});});return;}
+    if(e.target?.id!=='chat-form')return;
+    e.preventDefault();
+    const text=(document.getElementById('chat-input')?.value||app.composer||'').trim();
+    if(!text||!app.me||!app.roomData)return;
+    const roomId=app.roomId,localId='sending-'+uid();
+    const pending={id:localId,room_id:roomId,user_id:app.me.id,body:text,created_at:new Date().toISOString(),pending:true};
+    app.pendingMessages.push(pending);app.composer='';app.scrollToChat=true;
+    const field=document.getElementById('chat-input');if(field)field.value='';
+    updateRoomInPlace(app.roomData);field?.focus({preventScroll:true});
+    void run(async()=>{
+      try{
+        await app.service.sendMessage(roomId,text);
+        if(app.roomId===roomId)await refreshRoom();
+        app.pendingMessages=app.pendingMessages.filter(m=>m.id!==localId);
+      }catch(err){
+        app.pendingMessages=app.pendingMessages.filter(m=>m.id!==localId);
+        if(roomId===app.roomId){app.composer=text;const entry=document.getElementById('chat-input');if(entry)entry.value=text;updateRoomInPlace(app.roomData);}
+        throw err;
+      }
+    });
+  });
   document.addEventListener('click',e=>{const btn=e.target.closest('[data-action]');if(!btn)return;const a=btn.dataset.action;const d=btn.dataset;if(a==='retry-app'){location.reload();return;}if(a==='dismiss-diagnostic'){app.lastFailure=null;draw();return;}
     if(a==='social-open')return run(async()=>{app.socialOpen=true;app.socialTab='friends';app.dmPeer=null;await refreshSocial();});
     if(a==='social-tab'){app.socialTab=d.tab;app.dmPeer=null;draw();return;}
@@ -564,7 +647,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
     if(a==='spotlight-game')return run(async()=>{app.viewProfileId=null;await app.service.startGame(app.roomId,'would_rather');app.view='game';app.gameFeedback='';await refreshRoom();});
     if(a==='set-avatar'){const field=d.field,index=Number(d.index);if(field==='color'&&Number.isInteger(index)&&index>=0&&index<ID_COLORS.length){app.draft.color=index;draw();}return;}
     if(a==='join-digo')return run(async()=>{const name=trimName(app.draftName);if(name.length<2)throw Error('Choose a nickname with at least 2 characters.');let step='guest sign-in';try{app.me=await app.service.signIn(name,{...app.draft});step='room setup';app.composer='';await afterAuth();}catch(e){e.digoStage=step;throw e;}});
-    if(a==='room')return run(async()=>{await enterRoom(d.room);storage.setItem('digo:last-room',d.room);});
+    if(a==='room'){storage.setItem('digo:last-room',d.room);void enterRoom(d.room).catch(e=>showFailure('room switch',e));return;}
     if(a==='view'){app.view=d.view;draw();return;}
     if(a==='profile-open'){app.viewProfileId=null;app.profileOpen=true;app.draft={...app.me.avatar};app.draftName=app.me.display_name;draw();return;}
     if(a==='save-profile')return run(async()=>{const name=trimName(app.draftName);if(name.length<2)throw Error('Nickname must have at least 2 characters.');app.me={...app.me,display_name:name,avatar:{...app.draft}};await app.service.saveProfile(app.me);app.profileOpen=false;await refreshRoom();notify('ID updated! ✦');});
