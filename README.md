@@ -92,3 +92,33 @@ on conflict (user_id) do nothing;
 **[Open DIGO](https://hynprince.github.io/DIGO/)** · **[Community rules & privacy basics](community.html)** · **[Beta launch checklist](BETA-LAUNCH.md)**
 
 The beta is open for small-scale testing. Anonymous guest login uses Cloudflare Turnstile, rooms use Supabase Realtime, and a server-checked moderation desk handles reported content. **This is not a fully audited, large-scale public launch.** Before promoting widely, complete the live security/reporting tests in the checklist, establish recoverable moderator access, and provide an account/data deletion contact path.
+
+## DIGO v2.0 — Private-room WebRTC Voice Beta
+
+**Voice is an opt-in beta feature for INVITE-ONLY PRIVATE rooms, not DIGO's public chat rooms.**
+
+To activate on the existing DIGO Supabase project:
+
+1. Open [DIGO v2.0 Voice SQL](supabase/DIGO-v2.0-Voice.sql) on GitHub and select **Raw**.
+2. Paste the SQL into **Supabase → DIGO → SQL Editor → New Query** and run it once, **after v1.9**. Do **not** rerun old setup scripts. This adds authorization policies for the private `voice:<room_uuid>` Realtime signaling topics, not any voice recordings or databases.
+3. Open **https://digo.vercel.app/** and hard refresh. Ensure Cloudflare Turnstile permits the Vercel hostname.
+4. Sign into separate test accounts on a MacBook and phone. Create a **private room** on one device and share its invite link with the other.
+5. Both enter the **same private room** and press **JOIN VOICE**, granting microphone permission on each device. Use headphones to avoid feedback.
+6. Check two-way audio, MUTE and UNMUTE, LEAVE VOICE, switching rooms, and closing tabs. Confirm the microphone is released after leaving.
+7. On a separate account **not invited** to that private room, verify that the voice signaling channel cannot be joined. Check Supabase Realtime policies if private membership checks fail.
+
+### Technical implementation
+
+- `voice.js`: browser microphone with `getUserMedia`, one peer-to-peer `RTCPeerConnection` per other caller, STUN for ICE, hidden remote audio elements, and manual `resumeAudio()` for browser autoplay restrictions.
+- Supabase private Realtime Broadcast carries offer, answer and ICE signaling; private Presence announces current voice participants. The microphone is **off by default**, never starts without a user click, and is stopped when leaving/switching rooms/closing the page.
+- A **recommended**, not server-enforced, four-participant capacity. This mesh design increases bandwidth and CPU with each added speaker. No voice recording or storage is built into the code.
+
+### Limitations and safety before broad launch
+
+- **No TURN relay is configured**. Connections may fail between restrictive mobile networks or symmetric NATs despite apparently successful presence/signaling. For reliability, add an authenticated short-lived TURN credential service (never hardcode long-term TURN secrets in GitHub).
+- Peer-to-peer voice may expose network address information to connected peers. Audio is encrypted in transit by WebRTC (DTLS-SRTP), but DIGO has no end-to-end verification/anti-impersonation for signaling messages.
+- Invite-only rooms are for trusted testers. Each voice participant must opt in; private room membership isn't a strong identity or age verification system.
+- Block/report controls currently exist for text. **Voice-specific reporting, participant eviction, guardian/youth safety controls, and call abuse moderation are not complete**. Keep voice limited to trusted private beta until those controls are developed and tested.
+- The v2.0 JavaScript was statically checked, but not independently tested with two real browsers/microphones yet.
+
+**If a Join Voice button is missing**, confirm the room is private, the browser is on the latest DIGO deployment, and the v2.0 SQL has been applied. For errors, inspect the on-screen message and browser console.
