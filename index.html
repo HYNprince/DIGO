@@ -727,7 +727,7 @@ body{font-family:'DM Sans',system-ui,sans-serif}
       const previous=app.roomData;
       app.roomData=data;roomCache.set(roomId,data);
       if(app.lastFailure?.stage==='room sync')app.lastFailure=null;
-      if(!app.socialOpen&&!app.roomSettingsOpen&&!app.profileOpen&&!app.makeRoomOpen&&!app.inviteOpen){
+      if(!app.socialOpen&&!app.adminOpen&&!app.roomSettingsOpen&&!app.profileOpen&&!app.makeRoomOpen&&!app.inviteOpen){
         if(document.querySelector('.app-shell'))updateRoomInPlace(previous);else draw();
       }
     }catch(e){
